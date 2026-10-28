@@ -21,6 +21,10 @@ OCR_RENDER_DPI = 300
 # Separator inserted between texts of consecutive pages.
 PAGE_BREAK_SEPARATOR = "\n\n--- Page Break ---\n\n"
 
+# PDFs with legacy single-byte (cp1251) text encoding often come back from
+# PyMuPDF as mojibake: Cyrillic bytes decoded as Latin-1/WinAnsi
+# ("ÏÀÎ «Ãàçïðîì»"). See _looks_like_mojibake / _fix_mojibake below.
+
 
 class PdfProcessingError(Exception):
     """Raised when a PDF document cannot be opened or parsed."""
@@ -29,6 +33,45 @@ class PdfProcessingError(Exception):
 def _has_meaningful_content(text: str) -> bool:
     """Return True if the text contains at least one letter or digit."""
     return any(ch.isalnum() for ch in text)
+
+
+def _looks_like_mojibake(text: str) -> bool:
+    """Heuristic: text is mostly ASCII/Latin-1 supplement but clearly was Cyrillic.
+
+    Typical signature of cp1251-read-as-latin1: high share of U+0080–U+00FF
+    characters and almost no real Cyrillic (U+0400–U+04FF).
+    """
+    letters = [ch for ch in text if ch.isalpha()]
+    if len(letters) < 10:
+        return False
+    latin_ext = sum(1 for ch in letters if "\u00c0" <= ch <= "\u00ff")
+    cyrillic = sum(1 for ch in letters if "\u0400" <= ch <= "\u04ff")
+    return latin_ext / len(letters) > 0.3 and cyrillic == 0
+
+
+def _fix_mojibake(text: str) -> str:
+    """Try to restore cp1251 text that was decoded as latin-1/cp1252.
+
+    Returns the original text if recovery fails or produces nonsense.
+    """
+    for source_encoding in ("latin-1", "cp1252"):
+        try:
+            raw = text.encode(source_encoding, errors="strict")
+        except (UnicodeEncodeError, LookupError):
+            continue
+        candidate = raw.decode("cp1251", errors="replace")
+        # Sanity: replacement chars introduced by decoding mean wrong guess.
+        if candidate.count("\ufffd") > len(candidate) * 0.05:
+            continue
+        cyrillic = sum(1 for ch in candidate if "\u0400" <= ch <= "\u04ff")
+        if cyrillic > 0:
+            logger.info(
+                "Recovered cp1251 text from %s-decoded mojibake (%d Cyrillic chars)",
+                source_encoding,
+                cyrillic,
+            )
+            return candidate
+    return text
 
 
 def _extract_all_text_sync(data: bytes) -> Tuple[int, str]:
@@ -88,6 +131,9 @@ async def extract_editable_text(data: bytes) -> Tuple[int, str]:
     """
     pages_count, text = await asyncio.to_thread(_extract_all_text_sync, data)
     if _has_meaningful_content(text):
+        # Fix legacy cp1251-as-latin1 mojibake if detected (no-op otherwise).
+        if _looks_like_mojibake(text):
+            text = _fix_mojibake(text)
         logger.info("Editable PDF detected: %d page(s), %d chars", pages_count, len(text))
         return pages_count, text
     logger.info("No embedded text found in PDF (%d page(s)) — treating as scan", pages_count)

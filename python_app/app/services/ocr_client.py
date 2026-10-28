@@ -32,8 +32,12 @@ class OcrClient:
         payload = {"image_base64": image_base64}
         logger.info("Sending image to OCR API: %s", self._url)
 
+        # verify=False — допустимо для внутреннего n8n-вебхука с самоподписанным
+        # сертификатом в локальной сети (иначе https-URL даёт CERTIFICATE_VERIFY_FAILED).
         try:
-            async with httpx.AsyncClient(timeout=self._timeout) as client:
+            async with httpx.AsyncClient(
+                timeout=self._timeout, verify=False
+            ) as client:
                 response = await client.post(self._url, json=payload)
         except httpx.TimeoutException as exc:
             logger.error("OCR API request timed out after %ss", self._timeout)
@@ -45,9 +49,12 @@ class OcrClient:
             raise OcrApiError(f"OCR API connection error: {exc}") from exc
 
         if not response.is_success:
+            # n8n отдаёт 404 "webhook not found" для /webhook-test/... вне режима
+            # прослушивания и 400/500 при ошибке в workflow — логируем тело ответа.
             logger.error(
-                "OCR API returned status %s: %s",
+                "OCR API returned status %s (url=%s): %s",
                 response.status_code,
+                self._url,
                 response.text[:500],
             )
             raise OcrApiError(
