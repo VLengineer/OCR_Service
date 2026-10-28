@@ -1,0 +1,3 @@
+import secrets
+print(secrets.token_urlsafe(48))
+#jxdsnHNwSugOWRGjJ5-ERdwHUUYMNnAtoweGm4PCh2g2H9VM5B1BAbiGka81Dlxv

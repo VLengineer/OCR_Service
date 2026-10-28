@@ -1,0 +1,98 @@
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    hostname: ollama
+    restart: unless-stopped
+    runtime: nvidia
+    environment:
+      OLLAMA_HOST: "0.0.0.0:11435" # Возвращен стандартный порт, т.к. нет Nginx
+      NVIDIA_VISIBLE_DEVICES: "all"
+      NVIDIA_DRIVER_CAPABILITIES: "compute,utility"
+    volumes:
+      - ollama_data:/root/.ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all 
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - app_net
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: adminpassword
+      POSTGRES_DB: vectordb
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - app_net
+
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: n8n
+    restart: unless-stopped
+    ports:
+      - "5678:5678" # Доступен извне
+    environment:
+      N8N_HOST: "0.0.0.0"
+      N8N_PORT: "5678"
+      N8N_PROTOCOL: "http"
+      N8N_SECURE_COOKIE: "false"
+      N8N_EDITOR_BASE_URL: "http://localhost:5678/"
+      WEBHOOK_URL: "http://192.168.0.5:5678/"
+      GENERIC_TIMEZONE: "Europe/Moscow"
+      TZ: "Europe/Moscow"
+    volumes:
+      - n8n_data:/home/node/.n8n
+    depends_on:
+      ollama:
+        condition: service_healthy
+      postgres:
+        condition: service_started
+    networks:
+      - app_net
+
+  python-app:
+    image: python:3.12 # Версия python не изменена; uvicorn ставится на старте из requirements.txt
+    container_name: python_app
+    restart: unless-stopped
+    working_dir: /app
+    volumes:
+      - ./python_app:/app # Локальная папка с FastAPI кодом (правки + --reload без пересборки)
+    ports:
+      - "0.0.0.0:8000:8000" # Swagger: http://192.168.0.5:8000/docs (наружи, как и n8n:5678)
+    env_file:
+      - ./python_app/.env # JWT_SECRET, OCR_API_URL и т.д. (см. README микросервиса)
+    environment:
+      PYTHONUNBUFFERED: "1"
+      WEBHOOK_URL: "http://192.168.0.5:8000/"
+    command: sh -c "pip install --no-cache-dir -r requirements.txt && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+    depends_on:
+      - postgres
+      - ollama
+      - n8n
+    networks:
+      - app_net
+
+volumes:
+  ollama_data:
+  n8n_data:
+  postgres_data:
+
+networks:
+  app_net:
+    driver: bridge
