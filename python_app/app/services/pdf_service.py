@@ -140,7 +140,9 @@ async def extract_editable_text(data: bytes) -> Tuple[int, str]:
     return None  # type: ignore[return-value]
 
 
-async def ocr_scanned_pdf(data: bytes, ocr_client: OcrClient) -> Tuple[int, str]:
+async def ocr_scanned_pdf(
+    data: bytes, ocr_client: OcrClient, document_uuid: str
+) -> Tuple[int, str]:
     """OCR a scanned PDF: render each page and send it to the OCR API.
 
     Pages are processed STRICTLY SEQUENTIALLY (plain `for` loop,
@@ -157,7 +159,7 @@ async def ocr_scanned_pdf(data: bytes, ocr_client: OcrClient) -> Tuple[int, str]
     for index, image_b64 in enumerate(page_images, start=1):
         logger.info("OCR page %d/%d", index, pages_count)
         # Sequential await — do NOT parallelize these calls.
-        page_text = await ocr_client.recognize(image_b64)
+        page_text = await ocr_client.recognize(image_b64, document_uuid)
         page_texts.append(page_text.strip())
 
     combined_text = PAGE_BREAK_SEPARATOR.join(page_texts)

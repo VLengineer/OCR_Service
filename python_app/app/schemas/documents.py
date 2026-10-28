@@ -1,6 +1,8 @@
 """Pydantic schemas for document extraction requests/responses."""
 
-from pydantic import BaseModel, Field
+import uuid as uuid_module
+
+from pydantic import BaseModel, Field, field_validator
 
 
 class ExtractRequest(BaseModel):
@@ -11,6 +13,23 @@ class ExtractRequest(BaseModel):
         description="Base64-encoded contents of the document file.",
         min_length=1,
     )
+    uuid: str = Field(
+        ...,
+        description=(
+            "Document UUID (string). Passed through to the external n8n OCR API."
+        ),
+        min_length=1,
+    )
+
+    @field_validator("uuid")
+    @classmethod
+    def validate_uuid(cls, value: str) -> str:
+        """Ensure the value is a syntactically valid UUID string."""
+        try:
+            uuid_module.UUID(value)
+        except ValueError as exc:
+            raise ValueError(f"'{value}' is not a valid UUID") from exc
+        return value
 
 
 class ExtractResponse(BaseModel):
@@ -34,6 +53,10 @@ class OcrRequest(BaseModel):
     """Body sent to the external n8n OCR endpoint."""
 
     image_base64: str = Field(..., description="Base64-encoded PNG/JPEG image.")
+    uuid: str = Field(
+        ...,
+        description="Document UUID forwarded from the /extract request.",
+    )
 
 
 class OcrResponse(BaseModel):

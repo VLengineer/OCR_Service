@@ -77,8 +77,13 @@ docker compose up --build
 
 Запрос:
 ```json
-{ "document_base64": "<base64 файла>" }
+{
+  "document_base64": "<base64 файла>",
+  "uuid": "3f8a2b1c-9d4e-4c7a-b6f0-1e2d3c4b5a69"
+}
 ```
+Поле `uuid` — строка с UUID документа (обязательное, валидируется); оно
+пробрасывается дальше во внешний n8n OCR API.
 
 Ответ `200 OK`:
 ```json
@@ -93,7 +98,7 @@ docker compose up --build
 
 ### Вызов внешнего OCR API (n8n)
 
-`POST {OCR_API_URL}` с телом `{"image_base64": "..."}`, ожидается ответ `{"text": "..."}`.
+`POST {OCR_API_URL}` с телом `{"image_base64": "...", "uuid": "..."}`, ожидается ответ `{"text": "..."}`.
 
 ## Коды ошибок (единый формат `{"detail": "..."}`)
 
@@ -114,7 +119,7 @@ B64=$(base64 -w0 scan.pdf)
 curl -X POST http://localhost:8000/api/v1/extract \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d "{\"document_base64\": \"$B64\"}"
+  -d "{\"document_base64\": \"$B64\", \"uuid\": \"3f8a2b1c-9d4e-4c7a-b6f0-1e2d3c4b5a69\"}"
 ```
 
 ## Частые проблемы (troubleshooting)

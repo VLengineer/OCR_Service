@@ -82,28 +82,29 @@ def check_size(data: bytes, settings: Settings) -> None:
 
 
 async def _process_image(
-    document_base64: str, ocr_client: OcrClient
+    document_base64: str, ocr_client: OcrClient, document_uuid: str
 ) -> Tuple[int, str]:
     """Send the original image base64 directly to the OCR API."""
-    text = await ocr_client.recognize(document_base64)
+    text = await ocr_client.recognize(document_base64, document_uuid)
     return 1, text
 
 
 async def _process_pdf(
-    data: bytes, document_base64: str, ocr_client: OcrClient
+    data: bytes, document_base64: str, ocr_client: OcrClient, document_uuid: str
 ) -> Tuple[int, str]:
     """Process a PDF: editable -> local extraction; scanned -> sequential OCR."""
     result = await pdf_service.extract_editable_text(data)
     if result is not None:
         pages_count, text = result
         return pages_count, text
-    return await pdf_service.ocr_scanned_pdf(data, ocr_client)
+    return await pdf_service.ocr_scanned_pdf(data, ocr_client, document_uuid)
 
 
 async def extract_document(
     document_base64: str,
     settings: Settings,
     ocr_client: OcrClient,
+    document_uuid: str,
 ) -> ExtractResponse:
     """Full extraction pipeline for one base64-encoded document.
 
@@ -126,9 +127,13 @@ async def extract_document(
 
     # 5. Dispatch by type.
     if mime_type in SUPPORTED_IMAGE_TYPES:
-        pages_count, text = await _process_image(document_base64, ocr_client)
+        pages_count, text = await _process_image(
+            document_base64, ocr_client, document_uuid
+        )
     elif mime_type == "application/pdf":
-        pages_count, text = await _process_pdf(data, document_base64, ocr_client)
+        pages_count, text = await _process_pdf(
+            data, document_base64, ocr_client, document_uuid
+        )
     elif mime_type == DOCX_MIME_TYPE:
         pages_count, text = 1, await word_service.extract_text(data)
     else:

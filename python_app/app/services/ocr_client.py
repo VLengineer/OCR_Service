@@ -23,14 +23,19 @@ class OcrClient:
         self._url: str = settings.ocr_api_url
         self._timeout: float = float(settings.ocr_api_timeout)
 
-    async def recognize(self, image_base64: str) -> str:
+    async def recognize(self, image_base64: str, document_uuid: str) -> str:
         """Send a base64-encoded image to the OCR API and return recognized text.
+
+        Args:
+            image_base64: Base64-encoded PNG/JPEG image.
+            document_uuid: Document UUID (string) forwarded from the /extract
+                request so that n8n can correlate the OCR result with it.
 
         Raises:
             OcrApiError: on non-2xx response, malformed response body, or timeout.
         """
-        payload = {"image_base64": image_base64}
-        logger.info("Sending image to OCR API: %s", self._url)
+        payload = {"image_base64": image_base64, "uuid": document_uuid}
+        logger.info("Sending image to OCR API: %s (uuid=%s)", self._url, document_uuid)
 
         # verify=False — допустимо для внутреннего n8n-вебхука с самоподписанным
         # сертификатом в локальной сети (иначе https-URL даёт CERTIFICATE_VERIFY_FAILED).

@@ -27,7 +27,7 @@ router = APIRouter(prefix="/api/v1", tags=["extraction"])
     "/extract",
     response_model=ExtractResponse,
     responses={
-        400: {"model": Dict[str, str], "description": "Invalid base64 or request body"},
+        400: {"model": Dict[str, str], "description": "Invalid base64, uuid or request body"},
         401: {"model": Dict[str, str], "description": "Missing or invalid JWT"},
         413: {"model": Dict[str, str], "description": "File too large"},
         415: {"model": Dict[str, str], "description": "Unsupported media type"},
@@ -39,15 +39,22 @@ async def extract(
     request: Request,
     payload: Dict[str, Any] = Body(
         ...,
-        examples=[{"document_base64": "<base64-кодированный файл>"}],
+        examples=[
+            {
+                "document_base64": "<base64-кодированный файл>",
+                "uuid": "3f8a2b1c-9d4e-4c7a-b6f0-1e2d3c4b5a69",
+            }
+        ],
     ),
     settings: Settings = Depends(get_settings),
     _token_payload: Dict[str, Any] = Depends(verify_jwt),
 ) -> ExtractResponse:
     """Extract text from a base64-encoded document (JWT-protected).
 
-    Принимает JSON вида ``{"document_base64": "..."}``. Дополнительно
-    допускаются поля ``fileName``/``fileType`` (Elma365 может присылать их) —
+    Принимает JSON вида ``{"document_base64": "...", "uuid": "..."}``.
+    Поле ``uuid`` — строка с UUID документа; она передаётся дальше
+    во внешний n8n OCR API. Дополнительно допускаются поля
+    ``fileName``/``fileType`` (Elma365 может присылать их) —
     они игнорируются. Это защищает от 422, когда вызывающая сторона шлёт
     лишние поля или неверно именуемое поле.
     """
@@ -63,15 +70,28 @@ async def extract(
                 )
                 break
 
+    document_uuid = payload.get("uuid")
+    if document_uuid is None:
+        for alt in ("document_uuid", "documentUuid", "id"):
+            if isinstance(payload.get(alt), str):
+                document_uuid = payload[alt]
+                logger.warning(
+                    "Field %r used as uuid; send 'uuid' instead",
+                    alt,
+                )
+                break
+
     try:
-        request_model = ExtractRequest(document_base64=document_b64)
+        request_model = ExtractRequest(
+            document_base64=document_b64, uuid=document_uuid
+        )
     except Exception as exc:  # pydantic.ValidationError
         logger.warning("Validation failed for /extract body: %s", exc)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
                 "Request body must be a JSON object with a non-empty string "
-                "field 'document_base64'"
+                "field 'document_base64' and a valid UUID string field 'uuid'"
             ),
         ) from exc
 
@@ -82,6 +102,7 @@ async def extract(
             document_base64=request_model.document_base64,
             settings=settings,
             ocr_client=ocr_client,
+            document_uuid=request_model.uuid,
         )
     except InvalidBase64Error as exc:
         raise HTTPException(
