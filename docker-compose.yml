@@ -88,6 +88,28 @@ services:
     networks:
       - app_net
 
+  python-test: #Контейнер для теста скриптов
+    image: python:3.12 
+    container_name: python_test
+    restart: unless-stopped
+    working_dir: /app
+    volumes:
+      - ./python_test:/app
+    ports:
+      - "0.0.0.0:8100:8100"
+    env_file:
+      - ./python_test/.env
+    environment:
+      PYTHONUNBUFFERED: "1"
+      WEBHOOK_URL: "http://192.168.0.5:8100/"
+    command: sh -c "pip install --no-cache-dir -r requirements.txt && uvicorn app.main:app --host 0.0.0.0 --port 8100 --reload"
+    depends_on:
+      - postgres
+      - ollama
+      - n8n
+    networks:
+      - app_net
+
 volumes:
   ollama_data:
   n8n_data:

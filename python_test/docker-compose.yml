@@ -1,0 +1,8 @@
+services:
+  extractor:
+    build: .
+    ports:
+      - "8100:8100"
+    env_file:
+      - .env
+    restart: unless-stopped
