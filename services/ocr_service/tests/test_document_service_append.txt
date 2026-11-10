@@ -1,0 +1,207 @@
+
+
+
+# ──────────────────────────────────────────────
+# process_image_direct_ocr
+# ──────────────────────────────────────────────
+
+class TestProcessImageDirectOcr:
+    """Tests for DocumentService.process_image_direct_ocr."""
+
+    @pytest.mark.asyncio
+    async def test_calls_ocr_request_and_returns_result_for_image(self):
+        mock_rs = AsyncMock()
+        expected = {"status": "ok", "text": "ocr result"}
+        mock_rs.ocr_request.return_value = expected
+        svc = _make_service(request_service=mock_rs)
+
+        image_bytes = b"\x89PNG\r\n\x1a\nfake_png"
+        b64_data = _b64(image_bytes)
+        doc = Document(document_id="img-1", document_base64=b64_data)
+
+        with patch.object(svc, "detect_document_type", return_value=DocumentType.IMAGE):
+            result = await svc.process_image_direct_ocr(doc)
+
+        assert result == expected
+        mock_rs.ocr_request.assert_awaited_once()
+        ocr_request = mock_rs.ocr_request.call_args[0][0]
+        assert ocr_request.document_id == "img-1"
+        assert len(ocr_request.base64_document) == 1
+
+    @pytest.mark.asyncio
+    async def test_raises_value_error_when_document_is_not_image(self):
+        mock_rs = AsyncMock()
+        svc = _make_service(request_service=mock_rs)
+
+        doc = Document(document_id="doc-1", document_base64="dummy")
+
+        with patch.object(svc, "detect_document_type", return_value=DocumentType.PDF_SCAN):
+            with pytest.raises(ValueError, match="Ожидалось изображение"):
+                await svc.process_image_direct_ocr(doc)
+
+        mock_rs.ocr_request.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_raises_when_ocr_request_fails(self):
+        mock_rs = AsyncMock()
+        mock_rs.ocr_request.side_effect = Exception("HTTP error")
+        svc = _make_service(request_service=mock_rs)
+
+        image_bytes = b"\x89PNG\r\n\x1a\nfake_png"
+        b64_data = _b64(image_bytes)
+        doc = Document(document_id="img-err", document_base64=b64_data)
+
+        with patch.object(svc, "detect_document_type", return_value=DocumentType.IMAGE):
+            with pytest.raises(Exception, match="HTTP error"):
+                await svc.process_image_direct_ocr(doc)
+
+
+# ──────────────────────────────────────────────
+# process_pdf_scan_direct_ocr
+# ──────────────────────────────────────────────
+
+class TestProcessPdfScanDirectOcr:
+    """Tests for DocumentService.process_pdf_scan_direct_ocr."""
+
+    @pytest.mark.asyncio
+    async def test_calls_ocr_request_and_returns_result_for_pdf_scan(self):
+        mock_rs = AsyncMock()
+        expected = {"status": "ok", "text": "ocr result"}
+        mock_rs.ocr_request.return_value = expected
+        svc = _make_service(request_service=mock_rs)
+
+        fake_images = ["img_b64_1", "img_b64_2"]
+        doc = Document(document_id="scan-1", document_base64="dummy")
+
+        with patch.object(svc, "detect_document_type", return_value=DocumentType.PDF_SCAN):
+            with patch.object(svc, "convert_pdf_to_images", return_value=fake_images):
+                result = await svc.process_pdf_scan_direct_ocr(doc)
+
+        assert result == expected
+        mock_rs.ocr_request.assert_awaited_once()
+        ocr_request = mock_rs.ocr_request.call_args[0][0]
+        assert ocr_request.document_id == "scan-1"
+        assert ocr_request.base64_document == fake_images
+
+    @pytest.mark.asyncio
+    async def test_raises_value_error_when_document_is_not_pdf_scan(self):
+        mock_rs = AsyncMock()
+        svc = _make_service(request_service=mock_rs)
+
+        doc = Document(document_id="doc-2", document_base64="dummy")
+
+        with patch.object(svc, "detect_document_type", return_value=DocumentType.IMAGE):
+            with pytest.raises(ValueError, match="Ожидался PDF-скан"):
+                await svc.process_pdf_scan_direct_ocr(doc)
+
+        mock_rs.ocr_request.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_raises_when_ocr_request_fails(self):
+        mock_rs = AsyncMock()
+        mock_rs.ocr_request.side_effect = Exception("HTTP error")
+        svc = _make_service(request_service=mock_rs)
+
+        fake_images = ["img_b64_1"]
+        doc = Document(document_id="scan-err", document_base64="dummy")
+
+        with patch.object(svc, "detect_document_type", return_value=DocumentType.PDF_SCAN):
+            with patch.object(svc, "convert_pdf_to_images", return_value=fake_images):
+                with pytest.raises(Exception, match="HTTP error"):
+                    await svc.process_pdf_scan_direct_ocr(doc)
+
+
+# ──────────────────────────────────────────────
+# process_direct_ocr
+# ──────────────────────────────────────────────
+
+class TestProcessDirectOcr:
+    """Tests for DocumentService.process_direct_ocr."""
+
+    @pytest.mark.asyncio
+    async def test_image_routes_to_ocr_request_and_returns_dict(self):
+        mock_rs = AsyncMock()
+        expected = {"status": "ok", "text": "image ocr"}
+        mock_rs.ocr_request.return_value = expected
+        svc = _make_service(request_service=mock_rs)
+
+        image_bytes = b"\x89PNG\r\n\x1a\nfake_png"
+        b64_data = _b64(image_bytes)
+        doc = Document(document_id="direct-img", document_base64=b64_data)
+
+        with patch.object(svc, "detect_document_type", return_value=DocumentType.IMAGE):
+            result = await svc.process_direct_ocr(doc)
+
+        assert result == expected
+        mock_rs.ocr_request.assert_awaited_once()
+        mock_rs.create_document.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_pdf_scan_routes_to_ocr_request_and_returns_dict(self):
+        mock_rs = AsyncMock()
+        expected = {"status": "ok", "text": "pdf ocr"}
+        mock_rs.ocr_request.return_value = expected
+        svc = _make_service(request_service=mock_rs)
+
+        fake_images = ["page_1", "page_2"]
+        doc = Document(document_id="direct-scan", document_base64="dummy")
+
+        with patch.object(svc, "detect_document_type", return_value=DocumentType.PDF_SCAN):
+            with patch.object(svc, "convert_pdf_to_images", return_value=fake_images):
+                result = await svc.process_direct_ocr(doc)
+
+        assert result == expected
+        mock_rs.ocr_request.assert_awaited_once()
+        ocr_request = mock_rs.ocr_request.call_args[0][0]
+        assert ocr_request.base64_document == fake_images
+        mock_rs.create_document.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_word_routes_to_create_document_and_returns_none(self):
+        mock_rs = AsyncMock()
+        svc = _make_service(request_service=mock_rs)
+
+        doc = Document(document_id="direct-word", document_base64="dummy")
+
+        with patch.object(svc, "detect_document_type", return_value=DocumentType.WORD):
+            with patch.object(svc, "extract_text_from_word", return_value="Word text"):
+                result = await svc.process_direct_ocr(doc)
+
+        assert result is None
+        mock_rs.create_document.assert_awaited_once()
+        call_args = mock_rs.create_document.call_args[0][0]
+        assert call_args.document_id == "direct-word"
+        assert call_args.raw_text == "Word text"
+        mock_rs.ocr_request.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_pdf_text_routes_to_create_document_and_returns_none(self):
+        mock_rs = AsyncMock()
+        svc = _make_service(request_service=mock_rs)
+
+        doc = Document(document_id="direct-pdf-text", document_base64="dummy")
+
+        with patch.object(svc, "detect_document_type", return_value=DocumentType.PDF_TEXT):
+            with patch.object(svc, "extract_text_from_pdf_with_text", return_value="PDF text"):
+                result = await svc.process_direct_ocr(doc)
+
+        assert result is None
+        mock_rs.create_document.assert_awaited_once()
+        call_args = mock_rs.create_document.call_args[0][0]
+        assert call_args.document_id == "direct-pdf-text"
+        assert call_args.raw_text == "PDF text"
+        mock_rs.ocr_request.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_raises_when_http_request_fails(self):
+        mock_rs = AsyncMock()
+        mock_rs.ocr_request.side_effect = Exception("HTTP error")
+        svc = _make_service(request_service=mock_rs)
+
+        image_bytes = b"\x89PNG\r\n\x1a\nfake_png"
+        b64_data = _b64(image_bytes)
+        doc = Document(document_id="direct-err", document_base64=b64_data)
+
+        with patch.object(svc, "detect_document_type", return_value=DocumentType.IMAGE):
+            with pytest.raises(Exception, match="HTTP error"):
+                await svc.process_direct_ocr(doc)
