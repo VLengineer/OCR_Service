@@ -26,12 +26,12 @@ class ElmaDocument(BaseModel):
     subject: str | None = Field(default=None, description="Тема документа")
     description: str | None = Field(default=None, description="Описание документа")
     created_at: str | None = Field(default=None, alias="__createdAt", description="Дата создания")
-    counterparty: str | None = Field(default=None, description="Контрагент")
-    decision_maker: str | None = Field(default=None, alias="decisionMaker", description="Ответственный")
+    counterparty: list[str] | str | None = Field(default=None, description="Контрагент")
+    decision_maker: list[str] | str | None = Field(default=None, alias="decisionMaker", description="Ответственный")
     register_name_: str | None = Field(default=None, alias="__register_name", description="Имя реестра")
     type_id_: str | None = Field(default=None, alias="__type_id", description="ID типа документа")
     type_name_: str | None = Field(default=None, alias="__type_name", description="Имя типа документа")
-    version_: str | None = Field(default=None, alias="__version", description="Версия документа")
+    version_: int | str | None = Field(default=None, alias="__version", description="Версия документа")
     registration_date: str | None = Field(default=None, alias="registrationDate", description="Дата регистрации")
 
     model_config = {"populate_by_name": True}

@@ -77,6 +77,19 @@ class TestElmaDocument:
         assert "__name" in data
         assert data["__name"] == "report.xlsx"
 
+    def test_elma_document_with_list_fields_from_elma_api(self):
+        """ELMA API возвращает counterparty и decisionMaker как массивы UUID."""
+        doc = ElmaDocument.model_validate({
+            "__id": "0197b1b1-9a3f-72ec-874f-cb52f3bd3932",
+            "__name": "Входящее письмо",
+            "counterparty": ["0197b0fe-9a79-702b-a5af-934d57a45c95"],
+            "decisionMaker": ["05e8eeb1-ab3a-4425-acad-216e6cb1a263"],
+            "__version": 1794213122,
+        })
+        assert doc.counterparty == ["0197b0fe-9a79-702b-a5af-934d57a45c95"]
+        assert doc.decision_maker == ["05e8eeb1-ab3a-4425-acad-216e6cb1a263"]
+        assert doc.version_ == 1794213122
+
     def test_elma_document_serialization_without_alias(self):
         """Сериализация ElmaDocument с by_alias=False использует Python-имена."""
         doc = ElmaDocument(id_="789", name_="report.xlsx")
