@@ -1,7 +1,7 @@
 """
 Unit-тесты для document_type валидации в эндпоинтах.
 
-Тестируется POST /api/v1/documents и POST /api/v1/direct-ocr
+Тестируется POST /api/v1/ocr/documents и POST /api/v1/ocr
 на предмет корректной обработки поля document_type
 (валидные, невалидные, None, пустая строка).
 """
@@ -100,14 +100,14 @@ def direct_ocr_client(direct_ocr_app):
 
 
 class TestDocumentEndpointDocumentType:
-    """Тесты document_type в POST /api/v1/documents."""
+    """Тесты document_type в POST /api/v1/ocr/documents."""
 
     def test_process_document_with_valid_document_type(
         self, document_client, mock_document_service
     ):
         """Документ успешно принимается с валидным document_type."""
         response = document_client.post(
-            "/api/v1/documents",
+            "/api/v1/ocr/documents",
             json={
                 "document_id": "doc-123",
                 "document_base64": "aGVsbG8=",
@@ -122,7 +122,7 @@ class TestDocumentEndpointDocumentType:
     ):
         """Документ успешно принимается без document_type (None)."""
         response = document_client.post(
-            "/api/v1/documents",
+            "/api/v1/ocr/documents",
             json={
                 "document_id": "doc-124",
                 "document_base64": "aGVsbG8=",
@@ -136,7 +136,7 @@ class TestDocumentEndpointDocumentType:
     ):
         """Документ успешно принимается с document_type=''."""
         response = document_client.post(
-            "/api/v1/documents",
+            "/api/v1/ocr/documents",
             json={
                 "document_id": "doc-125",
                 "document_base64": "aGVsbG8=",
@@ -151,7 +151,7 @@ class TestDocumentEndpointDocumentType:
     ):
         """Невалидный document_type возвращает 400."""
         response = document_client.post(
-            "/api/v1/documents",
+            "/api/v1/ocr/documents",
             json={
                 "document_id": "doc-126",
                 "document_base64": "aGVsbG8=",
@@ -168,7 +168,7 @@ class TestDocumentEndpointDocumentType:
     ):
         """Различные валидные типы принимаются."""
         response = document_client.post(
-            "/api/v1/documents",
+            "/api/v1/ocr/documents",
             json={
                 "document_id": f"doc-{doc_type}",
                 "document_base64": "aGVsbG8=",
@@ -179,14 +179,14 @@ class TestDocumentEndpointDocumentType:
 
 
 class TestDirectOCREndpointDocumentType:
-    """Тесты document_type в POST /api/v1/direct-ocr."""
+    """Тесты document_type в POST /api/v1/ocr."""
 
     def test_direct_ocr_with_valid_document_type(
         self, direct_ocr_client, mock_direct_ocr_service
     ):
         """Direct OCR успешно выполняется с валидным document_type."""
         response = direct_ocr_client.post(
-            "/api/v1/direct-ocr",
+            "/api/v1/ocr",
             json={
                 "document_id": "doc-200",
                 "document_base64": "aGVsbG8=",
@@ -201,7 +201,7 @@ class TestDirectOCREndpointDocumentType:
     ):
         """Direct OCR успешно выполняется без document_type."""
         response = direct_ocr_client.post(
-            "/api/v1/direct-ocr",
+            "/api/v1/ocr",
             json={
                 "document_id": "doc-201",
                 "document_base64": "aGVsbG8=",
@@ -215,7 +215,7 @@ class TestDirectOCREndpointDocumentType:
     ):
         """Direct OCR успешно выполняется с document_type=''."""
         response = direct_ocr_client.post(
-            "/api/v1/direct-ocr",
+            "/api/v1/ocr",
             json={
                 "document_id": "doc-202",
                 "document_base64": "aGVsbG8=",
@@ -230,7 +230,7 @@ class TestDirectOCREndpointDocumentType:
     ):
         """Невалидный document_type возвращает 400."""
         response = direct_ocr_client.post(
-            "/api/v1/direct-ocr",
+            "/api/v1/ocr",
             json={
                 "document_id": "doc-203",
                 "document_base64": "aGVsbG8=",
@@ -247,7 +247,7 @@ class TestDirectOCREndpointDocumentType:
     ):
         """Различные валидные типы принимаются в direct OCR."""
         response = direct_ocr_client.post(
-            "/api/v1/direct-ocr",
+            "/api/v1/ocr",
             json={
                 "document_id": f"doc-{doc_type}",
                 "document_base64": "aGVsbG8=",

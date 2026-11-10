@@ -112,3 +112,13 @@ class DocumentConvertResponse(BaseModel):
     """Ответ после конвертации документа."""
     document_type: str = Field(description="Тип документа: word, pdf_text, pdf_scan, image")
     document_sheets: List[str] = Field(description="Массив страниц/листов в base64 или текст")
+
+
+class RecognitionRequest(BaseModel):
+    """Запрос на распознавание документа. Принимает только base64, тип определяется внутри."""
+    document_base64: str = Field(..., min_length=1, description="Документ в формате base64")
+
+
+class RecognitionResponse(BaseModel):
+    """Ответ распознавания. Содержит только распознанный текст."""
+    extracted_text: str = Field(description="Распознанный текст из документа")

@@ -273,7 +273,7 @@ class TestClientLifecycle:
         self, mock_async_client_cls: MagicMock, service: RequestService
     ):
         """_get_client создаёт новый клиент, если _client is None."""
-        mock_instance = AsyncMock(spec=httpx.AsyncClient)
+        mock_instance = AsyncMock()
         mock_instance.is_closed = False
         mock_async_client_cls.return_value = mock_instance
 
@@ -287,7 +287,7 @@ class TestClientLifecycle:
         self, mock_async_client_cls: MagicMock, service: RequestService
     ):
         """_get_client переиспользует существующий клиент."""
-        mock_instance = AsyncMock(spec=httpx.AsyncClient)
+        mock_instance = AsyncMock()
         mock_instance.is_closed = False
         mock_async_client_cls.return_value = mock_instance
         service._client = mock_instance
@@ -302,10 +302,10 @@ class TestClientLifecycle:
         self, mock_async_client_cls: MagicMock, service: RequestService
     ):
         """_get_client создаёт новый клиент, если старый закрыт."""
-        old_client = AsyncMock(spec=httpx.AsyncClient)
+        old_client = AsyncMock()
         old_client.is_closed = True
 
-        new_client = AsyncMock(spec=httpx.AsyncClient)
+        new_client = AsyncMock()
         new_client.is_closed = False
         mock_async_client_cls.return_value = new_client
         service._client = old_client

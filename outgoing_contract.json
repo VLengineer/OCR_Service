@@ -1,0 +1,130 @@
+    {
+        "result": [
+            {
+                "url": "https://elma365.psk.energy/chancellery/incoming_correspondence(p:item/chancellery/incoming_correspondence/0197b1b1-9a3f-72ec-874f-cb52f3bd3932)",
+                "__id": "0197b1b1-9a3f-72ec-874f-cb52f3bd3932",
+                "deal": [],
+                "__file": [
+                    "0197b1b4-0f37-76aa-b046-6979810450ee"
+                ],
+                "__name": "Входящее письмо от: ПУБЛИЧНОЕ АКЦИОНЕРНОЕ ОБЩЕСТВО \"ЛИПЕЦКАЯ ЭНЕРГОСБЫТОВАЯ КОМПАНИЯ\" - от 27.06.2025, 5:01:51",
+                "__debug": false,
+                "__index": 1,
+                "__tasks": [
+                    {
+                        "url": "",
+                        "__id": "0197c4fb-2fc9-7b64-b5ef-9256805b0647",
+                        "path": "/items/ebf70cc7-2fc7-4d4a-8787-9c72a6b8aa3d",
+                        "place": "",
+                        "state": "in_progress",
+                        "__item": {
+                            "id": "0197b1b1-9a3f-72ec-874f-cb52f3bd3932",
+                            "code": "incoming_correspondence",
+                            "namespace": "chancellery"
+                        },
+                        "__name": "Вынести резолюцию по письму: Входящее письмо от: ПУБЛИЧНОЕ АКЦИОНЕРНОЕ ОБЩЕСТВО \"ЛИПЕЦКАЯ ЭНЕРГОСБЫТОВАЯ КОМПАНИЯ\" - от 27.06.2025, 5:01:51",
+                        "branch": "7d01135e-295b-4bc0-8d86-b9a9303a7590",
+                        "dueDate": null,
+                        "openRef": false,
+                        "planEnd": null,
+                        "timerId": "00000000-0000-0000-0000-000000000000",
+                        "__logged": true,
+                        "__target": "",
+                        "instance": {
+                            "__id": "0197b1b4-1138-7b54-9d8b-816075d49e10",
+                            "code": "P_IncomingCorrespondence",
+                            "__name": "Обработка Входящее письмо от: ПУБЛИЧНОЕ АКЦИОНЕРНОЕ ОБЩЕСТВО \"ЛИПЕЦКАЯ ЭНЕРГОСБЫТОВАЯ КОМПАНИЯ\" - от 27.06.2025, 5:01:51. Тема письма: О дополнении плана-графика замен ИПУ",
+                            "namespace": "chancellery.incoming_correspondence"
+                        },
+                        "priority": 0,
+                        "template": "Входящая корреспонденция",
+                        "__context": [],
+                        "__percent": 0,
+                        "companies": null,
+                        "planStart": null,
+                        "performers": [
+                            "05e8eeb1-ab3a-4425-acad-216e6cb1a263"
+                        ],
+                        "reassignes": null,
+                        "__createdAt": "2025-07-01T07:54:45.523634253Z",
+                        "__createdBy": "05e8eeb1-ab3a-4425-acad-216e6cb1a263",
+                        "__deletedAt": null,
+                        "__updatedAt": "2025-07-01T07:54:45.659973384Z",
+                        "__updatedBy": "bdc59bae-5c50-4820-b642-a6c6a7571d98",
+                        "description": "",
+                        "__targetData": null,
+                        "detachedInfo": null,
+                        "allowReassign": true,
+                        "templateNsAndCode": "chancellery.incoming_correspondence:P_IncomingCorrespondence",
+                        "originalPerformers": [
+                            "05e8eeb1-ab3a-4425-acad-216e6cb1a263"
+                        ],
+                        "externalParticipants": null
+                    }
+                ],
+                "project": [],
+                "subject": "О дополнении плана-графика замен ИПУ",
+                "__status": {
+                    "order": 0,
+                    "status": 8
+                },
+                "__version": 1794213122,
+                "letterType": [
+                    {
+                        "code": "initial",
+                        "name": "Первичное"
+                    }
+                ],
+                "__createdAt": "2025-06-27T14:04:16Z",
+                "__createdBy": "2090f5aa-a5a5-4396-aa65-e052179aeb4c",
+                "__deletedAt": null,
+                "__directory": null,
+                "__printForm": null,
+                "__updatedAt": "2026-11-09T08:32:02Z",
+                "__updatedBy": "bdc59bae-5c50-4820-b642-a6c6a7571d98",
+                "description": "О дополнении плана-графика замен ИПУ",
+                "legalEntity": [
+                    "0197a0ac-cda7-7259-b2c6-a6c049a911e8"
+                ],
+                "__externalId": null,
+                "counterparty": [
+                    "0197b0fe-9a79-702b-a5af-934d57a45c95"
+                ],
+                "__subscribers": [
+                    "2090f5aa-a5a5-4396-aa65-e052179aeb4c"
+                ],
+                "decisionMaker": [
+                    "05e8eeb1-ab3a-4425-acad-216e6cb1a263"
+                ],
+                "__register_name": "492",
+                "incoming_doc_edo": [],
+                "registrationDate": "2025-06-19T00:00:00.000Z",
+                "__statusChangedAt": "2025-07-01T13:25:50.411172995Z",
+                "externalRegNumber": "3799-13-01",
+                "internalRegNumber": "492",
+                "__tasks_performers": [
+                    "05e8eeb1-ab3a-4425-acad-216e6cb1a263"
+                ],
+                "sendForAcquaintance": true,
+                "acquaintanceDeadline": "2025-06-28T14:04:16.000Z",
+                "templateDocumentName": "Входящее письмо от: ПУБЛИЧНОЕ АКЦИОНЕРНОЕ ОБЩЕСТВО \"ЛИПЕЦКАЯ ЭНЕРГОСБЫТОВАЯ КОМПАНИЯ\" - от 27.06.2025, 5:01:51",
+                "__externalProcessMeta": null,
+                "relatedDocumentsTable": {
+                    "rows": [],
+                    "view": "",
+                    "result": null
+                },
+                "acquaintanceRecipients": [
+                    "10417b8d-62de-4b5d-8a17-c6e39d604e82"
+                ],
+                "outgoingCorrespondence": [],
+                "registrationDateString": null,
+                "__tasks_earliest_duedate": null,
+                "resolutionAssignmentsTable": {
+                    "rows": [],
+                    "view": "",
+                    "result": null
+                }
+            }
+        ]
+    }

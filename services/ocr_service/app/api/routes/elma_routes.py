@@ -12,16 +12,17 @@ from app.services.elma_service import ElmaService
 router = APIRouter(prefix="/api/v1/elma", tags=["ELMA365"])
 
 
-@router.get("/documents", response_model=List[ElmaDocument])
+@router.get(
+    "/documents",
+    response_model=List[ElmaDocument],
+    status_code=status.HTTP_200_OK,
+    summary="Получить список документов из ELMA365",
+    description="Возвращает список документов из системы ELMA365. Требует JWT-авторизацию.",
+)
 async def get_documents_list(
     elma_service: ElmaService = Depends(get_elma_service),
     current_user: dict = Depends(get_current_user),
 ) -> List[ElmaDocument]:
-    """
-    Получить список документов из ELMA365.
-
-    Требует JWT-авторизацию.
-    """
     try:
         documents = await elma_service.get_documents_list()
         return documents
@@ -32,20 +33,22 @@ async def get_documents_list(
         )
 
 
-@router.post("/documents/{document_id}/process", response_model=Task)
+@router.post(
+    "/documents/{document_id}/process",
+    response_model=Task,
+    status_code=status.HTTP_200_OK,
+    summary="Создать задачу на обработку документа из ELMA365",
+    description=(
+        "Скачивает документ из ELMA365 и создает задачу с типом FILL_RAG на его обработку. "
+        "Требует JWT-авторизацию."
+    ),
+)
 async def process_elma_document(
     document_id: str,
     elma_service: ElmaService = Depends(get_elma_service),
     task_repository: TaskRepository = Depends(get_task_repository),
     current_user: dict = Depends(get_current_user),
 ) -> Task:
-    """
-    Создать задачу на обработку документа из ELMA365.
-
-    Скачивает документ из ELMA365 и создает задачу с типом FILL_RAG.
-
-    Требует JWT-авторизацию.
-    """
     # Получаем список документов и ищем нужный
     documents = await elma_service.get_documents_list()
     document = next((d for d in documents if d.id_ == document_id), None)
@@ -87,19 +90,22 @@ async def process_elma_document(
     return task
 
 
-@router.post("/load-documents", response_model=List[Task])
+@router.post(
+    "/load-documents",
+    response_model=List[Task],
+    status_code=status.HTTP_200_OK,
+    summary="Загрузить все документы из ELMA365",
+    description=(
+        "Загружает все документы из ELMA365 и создает задачи на их обработку. "
+        "Для каждого документа создается задача с типом FILL_RAG. "
+        "Требует JWT-авторизацию."
+    ),
+)
 async def load_documents_from_elma(
     elma_service: ElmaService = Depends(get_elma_service),
     task_repository: TaskRepository = Depends(get_task_repository),
     current_user: dict = Depends(get_current_user),
 ) -> List[Task]:
-    """
-    Загрузить все документы из ELMA365 и создать задачи на обработку.
-
-    Для каждого документа создается задача с типом FILL_RAG.
-
-    Требует JWT-авторизацию.
-    """
     documents = await elma_service.get_documents_list()
     created_tasks: List[Task] = []
 

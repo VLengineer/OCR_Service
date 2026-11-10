@@ -1,0 +1,65 @@
+services:
+  ocr_service_dev:
+    build:
+      context: ./ocr_service
+      dockerfile: Dockerfile
+    user: "${UID}:${GID}"
+    container_name: ocr_service_dev
+    restart: unless-stopped
+    ports:
+      - "9010:9010"
+    environment:
+      APP_HOST: 0.0.0.0
+      APP_PORT: 9010
+      LOG_LEVEL: ${OCR_LOG_LEVEL:-INFO}
+      # ── PostgreSQL ──
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_HOST: postgres_dev
+      POSTGRES_PORT: 9001
+      # ── Ollama ──
+      OLLAMA_HOST: ollama_dev
+      OLLAMA_PORT: 9002
+      # ── n8n ──
+      N8N_BASE_URL: ${N8N_BASE_URL:-http://n8n_dev:9000}
+      N8N_REQUEST_TIMEOUT_SEC: ${N8N_REQUEST_TIMEOUT_SEC:-30}
+      # ── JWT ──
+      JWT_SECRET: ${JWT_SECRET:-your-secret-key-change-in-production}
+      JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-30}
+    networks:
+      - app_net_dev
+
+  worker_service_dev:
+    build:
+      context: ./worker_service
+      dockerfile: Dockerfile
+    user: "${UID}:${GID}"
+    container_name: worker_service_dev
+    restart: unless-stopped
+    ports:
+      - "9011:9011"
+    environment:
+      APP_HOST: 0.0.0.0
+      APP_PORT: 9011
+      LOG_LEVEL: ${WORKER_LOG_LEVEL:-INFO}
+      # ── PostgreSQL ──
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_HOST: postgres_dev
+      POSTGRES_PORT: 9001
+      # ── n8n ──
+      N8N_BASE_URL: ${N8N_BASE_URL:-http://n8n_dev:9000}
+      N8N_REQUEST_TIMEOUT_SEC: ${N8N_REQUEST_TIMEOUT_SEC:-30}
+      # ── Воркер ──
+      WORKER_POLL_INTERVAL_SEC: ${WORKER_POLL_INTERVAL_SEC:-5}
+      WORKER_MAX_RETRIES: ${WORKER_MAX_RETRIES:-3}
+    networks:
+      - app_net_dev
+
+networks:
+  app_net_dev:
+    name: app_net_dev
+    external: true

@@ -2,271 +2,201 @@
 Unit-тесты для RecognitionProxyService.
 
 Тестируются:
-- Успешное распознавание документа
-- Ошибка парсинга ответа (ValueError)
-- Ошибка HTTP-запроса (пробрасывание исключения)
-- Логирование начала и конца распознавания
+- Успешное распознавание: base64 → конвертация в PDF → отправка в OCR → текст
+- Ошибка декодирования base64 → ValueError
+- Ошибка конвертации документа → ValueError
+- Ошибка запроса к OCR-сервису → проброс исключения
+- Возврат распознанного текста (str)
 """
 
-import logging
-from unittest.mock import AsyncMock, MagicMock
-from uuid import uuid4
-
 import pytest
+from unittest.mock import AsyncMock, MagicMock
 
-from app.schemas.schemas import Document, DocumentRequest
 from app.services.recognition_proxy_service import RecognitionProxyService
+from app.schemas.schemas import RecognitionRequest
+from app.services.direct_ocr_service import DirectOCRService
 
 
-class TestRecognitionProxyServiceRecognize:
-    """Тесты для метода recognize."""
+# ──────────────────────────────────────────────
+# Fixtures
+# ──────────────────────────────────────────────
 
-    @pytest.fixture
-    def mock_request_service(self):
-        """Мок для RequestService."""
-        service = MagicMock()
-        service.recognize_document = AsyncMock()
-        return service
+@pytest.fixture
+def mock_request_service():
+    """Mock RequestService."""
+    service = MagicMock()
+    service.recognize_document = AsyncMock()
+    return service
 
-    @pytest.fixture
-    def recognition_service(self, mock_request_service):
-        """Создание экземпляра RecognitionProxyService."""
-        return RecognitionProxyService(request_service=mock_request_service)
 
-    @pytest.fixture
-    def sample_document(self):
-        """Тестовый документ."""
-        return Document(
-            document_id="doc-123",
-            document_base64="base64data",
-            document_type="incoming_contract",
-        )
+@pytest.fixture
+def mock_direct_ocr_service():
+    """Mock DirectOCRService."""
+    service = MagicMock(spec=DirectOCRService)
+    return service
+
+
+@pytest.fixture
+def mock_document_converter():
+    """Mock DocumentConverter."""
+    converter = MagicMock()
+    converter.detect_document_type = MagicMock()
+    converter.convert_to_pdf = MagicMock(return_value=b"converted-pdf-bytes")
+    return converter
+
+
+@pytest.fixture
+def recognition_service(
+    mock_request_service, mock_direct_ocr_service, mock_document_converter
+):
+    """RecognitionProxyService с моками зависимостей."""
+    return RecognitionProxyService(
+        request_service=mock_request_service,
+        document_converter=mock_document_converter,
+    )
+
+
+# ──────────────────────────────────────────────
+# Тесты успешного распознавания
+# ──────────────────────────────────────────────
+
+class TestRecognitionSuccess:
+    """Тесты успешного распознавания документа."""
 
     @pytest.mark.asyncio
-    async def test_recognize_success(
-        self, recognition_service, mock_request_service, sample_document
+    async def test_recognize_returns_extracted_text(
+        self, recognition_service, mock_request_service, mock_document_converter
     ):
-        """Тест успешного распознавания документа.
-
-        Mock RequestService.recognize_document возвращает валидный dict,
-        проверяем что вернулся DocumentRequest с правильными полями.
-        """
+        """Успешное распознавание возвращает строку с распознанным текстом."""
         # Arrange
-        task_id = uuid4()
-        mock_request_service.recognize_document.return_value = {
-            "task_id": str(task_id),
-            "document_id": "doc-123",
-            "raw_text": "Распознанный текст документа",
-            "document_type": "incoming_contract",
-        }
+        request = RecognitionRequest(document_base64="aGVsbG8=")
+        mock_document_converter.detect_document_type.return_value = "image"
+        mock_request_service.recognize_document.return_value = {"raw_text": "Распознанный текст"}
 
         # Act
-        result = await recognition_service.recognize(sample_document)
+        result = await recognition_service.recognize(request)
 
         # Assert
-        assert isinstance(result, DocumentRequest)
-        assert result.document_id == "doc-123"
-        assert result.raw_text == "Распознанный текст документа"
-        assert result.document_type == "incoming_contract"
-        assert result.task_id == task_id
-
-        mock_request_service.recognize_document.assert_called_once_with(
-            sample_document
-        )
+        assert isinstance(result, str)
+        assert result == "Распознанный текст"
 
     @pytest.mark.asyncio
-    async def test_recognize_success_without_optional_fields(
-        self, recognition_service, mock_request_service, sample_document
+    async def test_recognize_detects_document_type(
+        self, recognition_service, mock_document_converter, mock_request_service
     ):
-        """Тест успешного распознавания без опциональных полей."""
+        """Перед отправкой в OCR определяется тип документа."""
         # Arrange
-        mock_request_service.recognize_document.return_value = {
-            "document_id": "doc-123",
-            "raw_text": "Текст без типа",
-        }
+        from app.services.document_converter import DocumentType
+        request = RecognitionRequest(document_base64="aGVsbG8=")
+        mock_document_converter.detect_document_type.return_value = DocumentType.IMAGE
+        mock_request_service.recognize_document.return_value = {"raw_text": "Текст"}
 
         # Act
-        result = await recognition_service.recognize(sample_document)
+        await recognition_service.recognize(request)
 
-        # Assert
-        assert isinstance(result, DocumentRequest)
-        assert result.document_id == "doc-123"
-        assert result.raw_text == "Текст без типа"
-        assert result.task_id is None
-        assert result.document_type is None
+        # Assert — detect_document_type был вызван с base64
+        mock_document_converter.detect_document_type.assert_called_once_with("aGVsbG8=")
 
     @pytest.mark.asyncio
-    async def test_recognize_invalid_response_raises_value_error(
-        self, recognition_service, mock_request_service, sample_document
+    async def test_recognize_sends_document_to_request_service(
+        self, recognition_service, mock_request_service, mock_document_converter
     ):
-        """Тест ошибки парсинга ответа.
+        """После определения типа документ отправляется в RequestService."""
+        # Arrange
+        from app.services.document_converter import DocumentType
+        request = RecognitionRequest(document_base64="aGVsbG8=")
+        mock_document_converter.detect_document_type.return_value = DocumentType.IMAGE
+        mock_request_service.recognize_document.return_value = {"raw_text": "Текст"}
 
-        Mock RequestService.recognize_document возвращает невалидный dict
-        (отсутствует обязательное поле raw_text), проверяем ValueError.
-        """
-        # Arrange — raw_text отсутствует, DocumentRequest не сможет распарсить
-        mock_request_service.recognize_document.return_value = {
-            "document_id": "doc-123",
-            # raw_text отсутствует — обязательное поле
-        }
+        # Act
+        await recognition_service.recognize(request)
+
+        # Assert — RequestService.recognize_document был вызван
+        mock_request_service.recognize_document.assert_called_once()
+        # Проверяем что переданный документ содержит base64
+        call_args = mock_request_service.recognize_document.call_args[0][0]
+        assert call_args.document_base64 == "aGVsbG8="
+
+    @pytest.mark.asyncio
+    async def test_recognize_returns_only_text_string(
+        self, recognition_service, mock_request_service, mock_document_converter
+    ):
+        """Метод recognize возвращает только строку с текстом."""
+        # Arrange
+        from app.services.document_converter import DocumentType
+        request = RecognitionRequest(document_base64="aGVsbG8=")
+        mock_document_converter.detect_document_type.return_value = DocumentType.IMAGE
+        mock_request_service.recognize_document.return_value = {"raw_text": "Только текст"}
+
+        # Act
+        result = await recognition_service.recognize(request)
+
+        # Assert — возвращается строка, а не объект
+        assert isinstance(result, str)
+        assert result == "Только текст"
+
+
+# ──────────────────────────────────────────────
+# Тесты обработки ошибок
+# ──────────────────────────────────────────────
+
+class TestRecognitionErrorHandling:
+    """Тесты обработки ошибок при распознавании."""
+
+    @pytest.mark.asyncio
+    async def test_invalid_base64_raises_value_error(
+        self, recognition_service, mock_document_converter
+    ):
+        """Невалидный base64 → ValueError."""
+        # Arrange
+        request = RecognitionRequest(document_base64="not-valid-base64!!!")
+        mock_document_converter.detect_document_type.side_effect = ValueError("Invalid base64")
 
         # Act & Assert
-        with pytest.raises(ValueError):
-            await recognition_service.recognize(sample_document)
+        with pytest.raises(ValueError, match="base64"):
+            await recognition_service.recognize(request)
 
     @pytest.mark.asyncio
-    async def test_recognize_http_error_propagates(
-        self, recognition_service, mock_request_service, sample_document
+    async def test_empty_response_raises_value_error(
+        self, recognition_service, mock_request_service, mock_document_converter
     ):
-        """Тест ошибки HTTP-запроса.
-
-        Mock RequestService.recognize_document поднимает Exception,
-        проверяем что исключение пробрасывается наружу.
-        """
+        """Пустой ответ от OCR → ValueError."""
         # Arrange
-        mock_request_service.recognize_document.side_effect = Exception(
-            "HTTP connection timeout"
-        )
+        from app.services.document_converter import DocumentType
+        request = RecognitionRequest(document_base64="aGVsbG8=")
+        mock_document_converter.detect_document_type.return_value = DocumentType.IMAGE
+        mock_request_service.recognize_document.return_value = {"raw_text": ""}
 
         # Act & Assert
-        with pytest.raises(Exception, match="HTTP connection timeout"):
-            await recognition_service.recognize(sample_document)
+        with pytest.raises(ValueError, match="raw_text"):
+            await recognition_service.recognize(request)
 
     @pytest.mark.asyncio
-    async def test_recognize_http_error_propagates_connection_error(
-        self, recognition_service, mock_request_service, sample_document
+    async def test_request_service_error_propagates(
+        self, recognition_service, mock_request_service, mock_document_converter
     ):
-        """Тест пробрасывания ConnectionError."""
+        """Ошибка от RequestService пробрасывается дальше."""
         # Arrange
-        mock_request_service.recognize_document.side_effect = ConnectionError(
-            "Connection refused"
-        )
+        from app.services.document_converter import DocumentType
+        request = RecognitionRequest(document_base64="aGVsbG8=")
+        mock_document_converter.detect_document_type.return_value = DocumentType.IMAGE
+        mock_request_service.recognize_document.side_effect = Exception("OCR service unavailable")
+
+        # Act & Assert
+        with pytest.raises(Exception, match="OCR service unavailable"):
+            await recognition_service.recognize(request)
+
+    @pytest.mark.asyncio
+    async def test_request_service_connection_error_propagates(
+        self, recognition_service, mock_request_service, mock_document_converter
+    ):
+        """ConnectionError от RequestService пробрасывается."""
+        # Arrange
+        from app.services.document_converter import DocumentType
+        request = RecognitionRequest(document_base64="aGVsbG8=")
+        mock_document_converter.detect_document_type.return_value = DocumentType.IMAGE
+        mock_request_service.recognize_document.side_effect = ConnectionError("Connection refused")
 
         # Act & Assert
         with pytest.raises(ConnectionError, match="Connection refused"):
-            await recognition_service.recognize(sample_document)
-
-
-class TestRecognitionProxyServiceLogging:
-    """Тесты логирования в RecognitionProxyService."""
-
-    @pytest.fixture
-    def mock_request_service(self):
-        """Мок для RequestService."""
-        service = MagicMock()
-        service.recognize_document = AsyncMock()
-        return service
-
-    @pytest.fixture
-    def recognition_service(self, mock_request_service):
-        """Создание экземпляра RecognitionProxyService."""
-        return RecognitionProxyService(request_service=mock_request_service)
-
-    @pytest.fixture
-    def sample_document(self):
-        """Тестовый документ."""
-        return Document(
-            document_id="doc-log-test",
-            document_base64="base64data",
-            document_type="generic_document",
-        )
-
-    @pytest.mark.asyncio
-    async def test_recognize_logs_start_and_end(
-        self,
-        recognition_service,
-        mock_request_service,
-        sample_document,
-        caplog,
-    ):
-        """Тест логирования начала и конца распознавания.
-
-        Проверяем что логируются info-сообщения с document_id
-        в начале и в конце распознавания.
-        """
-        # Arrange
-        mock_request_service.recognize_document.return_value = {
-            "document_id": "doc-log-test",
-            "raw_text": "Текст для логирования",
-        }
-
-        # Act
-        with caplog.at_level(logging.INFO, logger="app.services.recognition_proxy_service"):
-            await recognition_service.recognize(sample_document)
-
-        # Assert — проверяем наличие логов начала и конца
-        log_messages = [record.message for record in caplog.records]
-
-        # Лог начала распознавания
-        start_logs = [
-            msg for msg in log_messages
-            if "Запрос распознавания документа" in msg
-        ]
-        assert len(start_logs) >= 1, "Должен быть лог начала распознавания"
-        assert "doc-log-test" in start_logs[0]
-        assert "generic_document" in start_logs[0]
-
-        # Лог завершения распознавания
-        end_logs = [
-            msg for msg in log_messages
-            if "Распознавание документа завершено" in msg
-        ]
-        assert len(end_logs) >= 1, "Должен быть лог завершения распознавания"
-        assert "doc-log-test" in end_logs[0]
-
-    @pytest.mark.asyncio
-    async def test_recognize_logs_error_on_invalid_response(
-        self,
-        recognition_service,
-        mock_request_service,
-        sample_document,
-        caplog,
-    ):
-        """Тест логирования ошибки при невалидном ответе."""
-        # Arrange
-        mock_request_service.recognize_document.return_value = {
-            # Нет обязательного raw_text
-            "document_id": "doc-log-test",
-        }
-
-        # Act
-        with caplog.at_level(logging.ERROR, logger="app.services.recognition_proxy_service"):
-            with pytest.raises(ValueError):
-                await recognition_service.recognize(sample_document)
-
-        # Assert — проверяем наличие error-лога
-        log_messages = [record.message for record in caplog.records]
-        error_logs = [
-            msg for msg in log_messages
-            if "Некорректный формат ответа" in msg
-        ]
-        assert len(error_logs) >= 1, "Должен быть error-лог при невалидном ответе"
-        assert "doc-log-test" in error_logs[0]
-
-    @pytest.mark.asyncio
-    async def test_recognize_logs_error_on_exception(
-        self,
-        recognition_service,
-        mock_request_service,
-        sample_document,
-        caplog,
-    ):
-        """Тест логирования ошибки при исключении HTTP-запроса."""
-        # Arrange
-        mock_request_service.recognize_document.side_effect = Exception(
-            "Network failure"
-        )
-
-        # Act
-        with caplog.at_level(logging.ERROR, logger="app.services.recognition_proxy_service"):
-            with pytest.raises(Exception):
-                await recognition_service.recognize(sample_document)
-
-        # Assert — проверяем наличие error-лога
-        log_messages = [record.message for record in caplog.records]
-        error_logs = [
-            msg for msg in log_messages
-            if "Ошибка распознавания документа" in msg
-        ]
-        assert len(error_logs) >= 1, "Должен быть error-лог при исключении"
-        assert "doc-log-test" in error_logs[0]
+            await recognition_service.recognize(request)

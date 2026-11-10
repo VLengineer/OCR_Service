@@ -1,0 +1,85 @@
+{
+  "active": true,
+  "filter": {
+    "tf": {
+      "__directory": "00000000-0000-0000-0000-000000000000",
+      "__externalId": "example",
+      "counterparty": [
+        "00000000-0000-0000-0000-000000000000"
+      ],
+      "decisionMaker": "00000000-0000-0000-0000-000000000000",
+      "subject": "example",
+      "acquaintanceRecipients": "00000000-0000-0000-0000-000000000000",
+      "internalRegNumber": "example",
+      "externalRegNumber": "example",
+      "legalEntity": [
+        "00000000-0000-0000-0000-000000000000"
+      ],
+      "description": "example",
+      "outgoingCorrespondence": [
+        "00000000-0000-0000-0000-000000000000"
+      ],
+      "deal": [
+        "00000000-0000-0000-0000-000000000000"
+      ],
+      "project": [
+        "00000000-0000-0000-0000-000000000000"
+      ],
+      "__deletedAt": {
+        "min": "2018-09-01",
+        "max": "2019-01-01"
+      },
+      "__tasks_performers": "00000000-0000-0000-0000-000000000000",
+      "__index": {
+        "min": 10,
+        "max": 100
+      },
+      "__name": "example",
+      "__status": [
+        1,
+        2,
+        3
+      ],
+      "__statusChangedAt": {
+        "min": "2018-09-01",
+        "max": "2019-01-01"
+      },
+      "__tasks_earliest_duedate": {
+        "min": "2018-09-01",
+        "max": "2019-01-01"
+      },
+      "__updatedAt": {
+        "min": "2018-09-01",
+        "max": "2019-01-01"
+      },
+      "__updatedBy": "00000000-0000-0000-0000-000000000000",
+      "__createdAt": {
+        "min": "2018-09-01",
+        "max": "2019-01-01"
+      },
+      "__createdBy": "00000000-0000-0000-0000-000000000000"
+    }
+  },
+  "from": 0,
+  "ids": [
+    "00000000-0000-0000-0000-000000000000",
+    "00000000-0000-0000-0000-000000000000"
+  ],
+  "size": 10,
+  "sortExpressions": [
+    {
+      "ascending": true,
+      "field": "example"
+    },
+    {
+      "ascending": true,
+      "field": "example"
+    }
+  ],
+  "statusCode": [
+    "example",
+    "example"
+  ],
+  "statusGroupId": "a35cd8de-0c73-4f6a-8218-90193d02e2e0",
+  "withoutCount": true
+}

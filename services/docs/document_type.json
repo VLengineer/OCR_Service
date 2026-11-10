@@ -1,0 +1,31 @@
+{
+    "document_types": [
+        "incoming_correspondence",
+        "outgoing_correspondence",
+        "incoming_contract",
+        "outgoing_contract",
+        "additional_agreements",
+        "addendum_attachment",
+        "contract_attachments",
+        "commercial_offer",
+        "generic_document",
+        "completion_acts",
+        "protocol_disagreement",
+        "reglament",
+        "technologicalConnectionApplication",
+        "managementOrder",
+        "directive",
+        "payment_invoice",
+        "act_of_technological_connection",
+        "work_statement",
+        "project_estimate",
+        "act_of_metering_devices_admission",
+        "security_provision_notice",
+        "payment",
+        "universal_transfer_document",
+        "invoice",
+        "acceptance_certificate",
+        "packing_list",
+        "reconciliation_act"
+    ]
+}

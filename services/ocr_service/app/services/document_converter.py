@@ -49,7 +49,7 @@ class DocumentConverter:
                 base64_data = base64_data[comma_index + 1:]
                 logger.debug("Удален префикс data URI из base64")
         
-        return base64
+        return base64_data
 
     def detect_document_type(self, base64_data: str) -> str:
         """
