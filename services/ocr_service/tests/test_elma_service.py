@@ -39,6 +39,36 @@ class TestGetDocumentsList:
     """Тесты для метода get_documents_list."""
 
     @pytest.mark.asyncio
+    async def test_get_documents_list_success_with_elma_result_format(self, elma_service):
+        """Успешное получение списка документов (реальный формат ELMA365: result.result[])."""
+        mock_response_data = {
+            "result": {
+                "result": [
+                    {"__id": "1", "__name": "doc1.pdf", "__createdAt": "2024-01-15T10:30:00"},
+                    {"__id": "2", "__name": "doc2.pdf", "__createdAt": "2024-01-16T11:00:00"},
+                ]
+            }
+        }
+
+        mock_response = MagicMock()
+        mock_response.json.return_value = mock_response_data
+        mock_response.raise_for_status = MagicMock()
+
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_response
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+
+        with patch.object(httpx, "AsyncClient", return_value=mock_client):
+            result = await elma_service.get_documents_list()
+
+        assert len(result) == 2
+        assert result[0].id_ == "1"
+        assert result[0].name_ == "doc1.pdf"
+        assert result[1].id_ == "2"
+        assert result[1].name_ == "doc2.pdf"
+
+    @pytest.mark.asyncio
     async def test_get_documents_list_success_with_list_response(self, elma_service):
         """Успешное получение списка документов (ответ - массив)."""
         mock_response_data = [
@@ -51,7 +81,7 @@ class TestGetDocumentsList:
         mock_response.raise_for_status = MagicMock()
 
         mock_client = AsyncMock()
-        mock_client.get.return_value = mock_response
+        mock_client.post.return_value = mock_response
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=None)
 
@@ -78,7 +108,7 @@ class TestGetDocumentsList:
         mock_response.raise_for_status = MagicMock()
 
         mock_client = AsyncMock()
-        mock_client.get.return_value = mock_response
+        mock_client.post.return_value = mock_response
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=None)
 
@@ -102,7 +132,7 @@ class TestGetDocumentsList:
         mock_response.raise_for_status = MagicMock()
 
         mock_client = AsyncMock()
-        mock_client.get.return_value = mock_response
+        mock_client.post.return_value = mock_response
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=None)
 
@@ -120,7 +150,7 @@ class TestGetDocumentsList:
         mock_response.raise_for_status = MagicMock()
 
         mock_client = AsyncMock()
-        mock_client.get.return_value = mock_response
+        mock_client.post.return_value = mock_response
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=None)
 
@@ -140,7 +170,7 @@ class TestGetDocumentsList:
         )
 
         mock_client = AsyncMock()
-        mock_client.get.return_value = mock_response
+        mock_client.post.return_value = mock_response
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=None)
 
@@ -162,7 +192,7 @@ class TestDownloadDocument:
         mock_response.raise_for_status = MagicMock()
 
         mock_client = AsyncMock()
-        mock_client.get.return_value = mock_response
+        mock_client.post.return_value = mock_response
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=None)
 
@@ -184,7 +214,7 @@ class TestDownloadDocument:
         )
 
         mock_client = AsyncMock()
-        mock_client.get.return_value = mock_response
+        mock_client.post.return_value = mock_response
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=None)
 
@@ -199,7 +229,7 @@ class TestDownloadDocument:
     async def test_download_document_connection_error_returns_none(self, elma_service):
         """Обработка ошибки соединения при скачивании (возвращает None)."""
         mock_client = AsyncMock()
-        mock_client.get.side_effect = httpx.ConnectError("Connection refused")
+        mock_client.post.side_effect = httpx.ConnectError("Connection refused")
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=None)
 
@@ -218,7 +248,7 @@ class TestDownloadDocument:
         mock_response.raise_for_status = MagicMock()
 
         mock_client = AsyncMock()
-        mock_client.get.return_value = mock_response
+        mock_client.post.return_value = mock_response
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=None)
 
@@ -244,7 +274,7 @@ class TestGetDocumentBase64:
         mock_response.raise_for_status = MagicMock()
 
         mock_client = AsyncMock()
-        mock_client.get.return_value = mock_response
+        mock_client.post.return_value = mock_response
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=None)
 
@@ -266,7 +296,7 @@ class TestGetDocumentBase64:
         mock_response.raise_for_status = MagicMock()
 
         mock_client = AsyncMock()
-        mock_client.get.return_value = mock_response
+        mock_client.post.return_value = mock_response
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=None)
 
@@ -288,7 +318,7 @@ class TestGetDocumentBase64:
         )
 
         mock_client = AsyncMock()
-        mock_client.get.return_value = mock_response
+        mock_client.post.return_value = mock_response
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=None)
 
@@ -307,7 +337,7 @@ class TestGetDocumentBase64:
         mock_response.raise_for_status = MagicMock()
 
         mock_client = AsyncMock()
-        mock_client.get.return_value = mock_response
+        mock_client.post.return_value = mock_response
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=None)
 

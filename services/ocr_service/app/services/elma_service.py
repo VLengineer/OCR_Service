@@ -48,13 +48,27 @@ class ElmaService:
 
         try:
             async with httpx.AsyncClient(timeout=self._timeout) as client:
-                response = await client.post(url, headers=self._auth_headers(), json={})
+                response = await client.post(url, headers=self._auth_headers(), json={"active": True, "size": 2000})
                 response.raise_for_status()
 
                 data = response.json()
+                logger.debug("ELMA365 response keys: %s", list(data.keys()) if isinstance(data, dict) else type(data).__name__)
 
-                # ELMA365 может возвращать список напрямую или вложенный
-                items: list = data if isinstance(data, list) else data.get("items", data.get("documents", []))
+                # ELMA365 возвращает {"result": {"result": [...]}}
+                # Также поддерживаем варианты: прямой массив, "items", "documents"
+                if isinstance(data, list):
+                    items: list = data
+                elif isinstance(data, dict):
+                    # Официальный формат ELMA365: result.result[]
+                    result_wrapper = data.get("result")
+                    if isinstance(result_wrapper, dict):
+                        items = result_wrapper.get("result", [])
+                    elif isinstance(result_wrapper, list):
+                        items = result_wrapper
+                    else:
+                        items = data.get("items", data.get("documents", []))
+                else:
+                    items = []
 
                 documents: List[ElmaDocument] = []
                 for item in items:
