@@ -7,6 +7,7 @@ from typing import List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel
 
 from app.api.deps import get_current_user, get_request_service, get_task_repository
 from app.repositories.task_repository import TaskRepository
@@ -16,6 +17,12 @@ from app.services.request_service import RequestService
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/tasks", tags=["Tasks"])
+
+
+class DeleteTaskResponse(BaseModel):
+    """Ответ при удалении задачи."""
+    status: str
+    task_id: str
 
 
 @router.get(
@@ -148,6 +155,7 @@ async def process_task(
 
 @router.delete(
     "/{task_id}",
+    response_model=DeleteTaskResponse,
     status_code=status.HTTP_200_OK,
     summary="Удалить задачу",
     description="Удаляет задачу по её уникальному идентификатору. Требует JWT-авторизацию.",
@@ -156,11 +164,11 @@ async def delete_task(
     task_id: UUID,
     task_repository: TaskRepository = Depends(get_task_repository),
     current_user: dict = Depends(get_current_user),
-):
+) -> DeleteTaskResponse:
     deleted = await task_repository.remove_task(task_id)
     if not deleted:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Task {task_id} not found",
         )
-    return {"status": "deleted", "task_id": str(task_id)}
+    return DeleteTaskResponse(status="deleted", task_id=str(task_id))
