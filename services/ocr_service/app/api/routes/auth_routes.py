@@ -32,7 +32,7 @@ class TokenResponse(BaseModel):
         "Для простоты принимает любые credentials и возвращает токен с sub=username."
     ),
 )
-async def login_for_access_token(request: TokenRequest):
+async def login_for_access_token(request: TokenRequest) -> TokenResponse:
     if not request.username or not request.password:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

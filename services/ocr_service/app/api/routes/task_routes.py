@@ -37,7 +37,7 @@ async def get_tasks(
     limit: int = Query(100, ge=1, le=1000, description="Максимальное количество задач"),
     task_repository: TaskRepository = Depends(get_task_repository),
     current_user: dict = Depends(get_current_user),
-):
+) -> List[Task]:
     if state is not None:
         tasks = await task_repository.get_tasks_by_state(state, limit=limit)
     else:
@@ -62,7 +62,7 @@ async def get_tasks(
 async def get_next_waiting_task(
     task_repository: TaskRepository = Depends(get_task_repository),
     current_user: dict = Depends(get_current_user),
-):
+) -> Task:
     task = await task_repository.get_next_waiting_task()
     if task is None:
         raise HTTPException(
@@ -83,7 +83,7 @@ async def get_task_by_id(
     task_id: UUID,
     task_repository: TaskRepository = Depends(get_task_repository),
     current_user: dict = Depends(get_current_user),
-):
+) -> Task:
     task = await task_repository.get_task_by_id(task_id)
     if task is None:
         raise HTTPException(
@@ -109,7 +109,7 @@ async def process_task(
     task_repository: TaskRepository = Depends(get_task_repository),
     request_service: RequestService = Depends(get_request_service),
     current_user: dict = Depends(get_current_user),
-):
+) -> CallbackResponse:
     # Получаем задачу
     task = await task_repository.get_task_by_id(task_id)
     if task is None:
