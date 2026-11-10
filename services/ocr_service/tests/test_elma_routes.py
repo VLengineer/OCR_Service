@@ -2,7 +2,7 @@
 Unit-тесты для elma_routes.
 
 Тестируются:
-- GET /api/v1/elma/documents: получение списка документов
+- POST /api/v1/elma/documents: получение списка документов
 - POST /api/v1/elma/documents/{document_id}/process: создание задачи на обработку документа
 - POST /api/v1/elma/load-documents: загрузка всех документов
 - Обработка ошибок и авторизация (401)
@@ -139,7 +139,7 @@ def unauthenticated_client(unauthenticated_app):
 
 
 # ──────────────────────────────────────────────
-# Тесты GET /api/v1/elma/documents
+# Тесты POST /api/v1/elma/documents
 # ──────────────────────────────────────────────
 
 class TestGetDocumentsList:
@@ -148,12 +148,12 @@ class TestGetDocumentsList:
     def test_returns_list_of_documents(
         self, elma_client, mock_elma_service, sample_elma_documents
     ):
-        """Успешный запрос: GET → 200 и список документов."""
+        """Успешный запрос: POST → 200 и список документов."""
         # Arrange
         mock_elma_service.get_documents_list.return_value = sample_elma_documents
 
         # Act
-        response = elma_client.get("/api/v1/elma/documents")
+        response = elma_client.post("/api/v1/elma/documents")
 
         # Assert
         assert response.status_code == 200
@@ -173,7 +173,7 @@ class TestGetDocumentsList:
         mock_elma_service.get_documents_list.return_value = []
 
         # Act
-        response = elma_client.get("/api/v1/elma/documents")
+        response = elma_client.post("/api/v1/elma/documents")
 
         # Assert
         assert response.status_code == 200
@@ -189,7 +189,7 @@ class TestGetDocumentsList:
         )
 
         # Act
-        response = elma_client.get("/api/v1/elma/documents")
+        response = elma_client.post("/api/v1/elma/documents")
 
         # Assert
         assert response.status_code == 500
@@ -487,8 +487,8 @@ class TestElmaAuthorization:
     def test_get_documents_without_jwt_returns_401(
         self, unauthenticated_client
     ):
-        """GET /documents без JWT → 401."""
-        response = unauthenticated_client.get("/api/v1/elma/documents")
+        """POST /documents без JWT → 401."""
+        response = unauthenticated_client.post("/api/v1/elma/documents")
         assert response.status_code == 401
 
     def test_process_document_without_jwt_returns_401(

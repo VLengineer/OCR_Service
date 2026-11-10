@@ -12,7 +12,7 @@ from app.services.elma_service import ElmaService
 router = APIRouter(prefix="/api/v1/elma", tags=["ELMA365"])
 
 
-@router.get(
+@router.post(
     "/documents",
     response_model=List[ElmaDocument],
     status_code=status.HTTP_200_OK,

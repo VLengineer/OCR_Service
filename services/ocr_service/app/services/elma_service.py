@@ -43,10 +43,12 @@ class ElmaService:
         Pydantic-модель ElmaDocument использует aliases для маппинга.
         """
         url = f"{self._base_url}{self._list_path}"
+        logger.info("Запрос к ELMA365 API: POST %s", url)
+        logger.debug("Base URL: %s, List path: %s", self._base_url, self._list_path)
 
         try:
             async with httpx.AsyncClient(timeout=self._timeout) as client:
-                response = await client.get(url, headers=self._auth_headers())
+                response = await client.post(url, headers=self._auth_headers(), json={})
                 response.raise_for_status()
 
                 data = response.json()
@@ -62,10 +64,10 @@ class ElmaService:
                 return documents
 
         except httpx.HTTPStatusError as e:
-            logger.error("HTTP error при запросе к ELMA365 API: %s", e.response.status_code)
+            logger.error("HTTP error при запросе к ELMA365 API: %s | URL: %s", e.response.status_code, url)
             raise
         except httpx.HTTPError as e:
-            logger.error("Ошибка при запросе к ELMA365 API: %s", e)
+            logger.error("Ошибка при запросе к ELMA365 API: %s | URL: %s", e, url)
             raise
 
     async def download_document(self, document_url: str) -> Optional[bytes]:
@@ -75,11 +77,15 @@ class ElmaService:
         Returns:
             Содержимое документа или None при ошибке.
         """
+        logger.info("Скачивание документа: %s", document_url)
+        
         try:
             async with httpx.AsyncClient(timeout=self._timeout) as client:
-                response = await client.get(document_url, headers=self._auth_headers())
+                response = await client.post(document_url, headers=self._auth_headers(), json={})
                 response.raise_for_status()
-                return response.content
+                content = response.content
+                logger.info("Документ скачан успешно, размер: %d bytes", len(content))
+                return content
 
         except httpx.HTTPError as e:
             logger.error("Ошибка при скачивании документа %s: %s", document_url, e)
