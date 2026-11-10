@@ -58,10 +58,15 @@ class RequestService:
                 f"pages={len(request.base64_document)}"
             )
 
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {settings.n8n_token}",
+            }
+
             response = await client.post(
                 url,
                 json=request.model_dump(mode="json"),
-                headers={"Content-Type": "application/json"},
+                headers=headers,
             )
             response.raise_for_status()
 
@@ -113,10 +118,15 @@ class RequestService:
             )
 
             # by_alias=True — n8n ожидает ключи с алиасами (__id, __name, __createdAt и т.д.)
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {settings.n8n_token}",
+            }
+
             response = await client.post(
                 url,
                 json=request.model_dump(mode="json", by_alias=True),
-                headers={"Content-Type": "application/json"},
+                headers=headers,
             )
             response.raise_for_status()
 

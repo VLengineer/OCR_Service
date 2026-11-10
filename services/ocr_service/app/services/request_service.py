@@ -40,6 +40,13 @@ class RequestService:
             await self._client.aclose()
             logger.debug("HTTP клиент закрыт")
 
+    def _n8n_headers(self) -> dict[str, str]:
+        """Возвращает заголовки для запросов к n8n webhook'ам."""
+        return {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {settings.n8n_token}",
+        }
+
     async def ocr_request(self, request: OCRRequest) -> dict[str, Any]:
         """
         Отправляет запрос на OCR-обработку.
@@ -66,7 +73,7 @@ class RequestService:
             response = await client.post(
                 url,
                 json=request.model_dump(mode="json"),
-                headers={"Content-Type": "application/json"},
+                headers=self._n8n_headers(),
             )
             response.raise_for_status()
 
@@ -124,7 +131,7 @@ class RequestService:
             response = await client.post(
                 url,
                 json=request.model_dump(mode="json"),
-                headers={"Content-Type": "application/json"},
+                headers=self._n8n_headers(),
             )
             response.raise_for_status()
 
@@ -184,7 +191,7 @@ class RequestService:
             response = await client.post(
                 url,
                 json=document.model_dump(mode="json"),
-                headers={"Content-Type": "application/json"},
+                headers=self._n8n_headers(),
             )
             response.raise_for_status()
 

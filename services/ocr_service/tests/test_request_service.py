@@ -136,6 +136,7 @@ class TestOcrRequest:
 
         with patch("app.services.request_service.settings") as mock_settings:
             mock_settings.n8n_ocr_webhook_url = "http://n8n/webhook/ocr"
+            mock_settings.n8n_token = "test-token"
 
             result = await svc.ocr_request(request)
 
@@ -144,7 +145,10 @@ class TestOcrRequest:
 
         call_args = mock_client.post.call_args
         assert call_args[0][0] == "http://n8n/webhook/ocr"
-        assert call_args[1]["headers"] == {"Content-Type": "application/json"}
+        assert call_args[1]["headers"] == {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer test-token",
+        }
 
         json_payload = call_args[1]["json"]
         assert json_payload["document_id"] == "doc-123"
@@ -302,6 +306,7 @@ class TestCreateDocument:
 
         with patch("app.services.request_service.settings") as mock_settings:
             mock_settings.n8n_create_doc_webhook_url = "http://n8n/webhook/create_document"
+            mock_settings.n8n_token = "test-token"
 
             result = await svc.create_document(request)
 
@@ -310,7 +315,10 @@ class TestCreateDocument:
 
         call_args = mock_client.post.call_args
         assert call_args[0][0] == "http://n8n/webhook/create_document"
-        assert call_args[1]["headers"] == {"Content-Type": "application/json"}
+        assert call_args[1]["headers"] == {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer test-token",
+        }
 
         json_payload = call_args[1]["json"]
         assert json_payload["document_id"] == "doc-456"

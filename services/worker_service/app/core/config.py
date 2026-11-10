@@ -58,6 +58,10 @@ class Settings(BaseSettings):
         default=30,
         description="Таймаут HTTP-запросов к n8n (секунды)",
     )
+    n8n_token: str = Field(
+        default="",
+        description="Bearer-токен для авторизации webhook-запросов к n8n",
+    )
 
     @property
     def n8n_ocr_webhook_url(self) -> str:

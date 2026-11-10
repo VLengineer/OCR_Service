@@ -24,6 +24,12 @@ services:
       # ── n8n ──
       N8N_BASE_URL: ${N8N_BASE_URL:-http://n8n_dev:9000}
       N8N_REQUEST_TIMEOUT_SEC: ${N8N_REQUEST_TIMEOUT_SEC:-30}
+      N8N_TOKEN: ${N8N_TOKEN}
+      # ── ELMA365 ──
+      ELMA_TOKEN: ${ELMA_TOKEN}
+      ELMA_BASE_URL: ${ELMA_BASE_URL}
+      ELMA_LIST_PATH: ${ELMA_LIST_PATH}
+      ELMA_REQUEST_TIMEOUT_SEC: ${ELMA_REQUEST_TIMEOUT_SEC:-30}
       # ── JWT ──
       JWT_SECRET: ${JWT_SECRET:-your-secret-key-change-in-production}
       JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
@@ -53,6 +59,7 @@ services:
       # ── n8n ──
       N8N_BASE_URL: ${N8N_BASE_URL:-http://n8n_dev:9000}
       N8N_REQUEST_TIMEOUT_SEC: ${N8N_REQUEST_TIMEOUT_SEC:-30}
+      N8N_TOKEN: ${N8N_TOKEN}
       # ── Воркер ──
       WORKER_POLL_INTERVAL_SEC: ${WORKER_POLL_INTERVAL_SEC:-5}
       WORKER_MAX_RETRIES: ${WORKER_MAX_RETRIES:-3}
