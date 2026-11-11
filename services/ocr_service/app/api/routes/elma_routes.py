@@ -3,6 +3,7 @@ API endpoints для интеграции с ELMA365.
 """
 from fastapi import APIRouter, Depends, HTTPException, status
 from typing import List
+import re
 
 from app.api.deps import get_current_user, get_elma_service, get_task_repository
 from app.repositories.task_repository import TaskRepository
@@ -10,6 +11,28 @@ from app.schemas.schemas import ElmaDocument, State, Task, CallType
 from app.services.elma_service import ElmaService
 
 router = APIRouter(prefix="/api/v1/elma", tags=["ELMA365"])
+
+
+def extract_document_type_from_url(url: str | None) -> str | None:
+    """
+    Извлечь тип документа из URL ELMA365.
+    
+    URL имеет формат: .../app/chancellery/<type>/...
+    Возвращает часть пути после /app/chancellery/
+    
+    Examples:
+        "https://elma.example.com/app/chancellery/incoming/123" -> "incoming"
+        "https://elma.example.com/app/chancellery/dogovor/456" -> "dogovor"
+    """
+    if not url:
+        return None
+    
+    # Ищем паттерн /app/chancellery/<type>
+    match = re.search(r'/app/chancellery/([^/]+)', url)
+    if match:
+        return match.group(1)
+    
+    return None
 
 
 @router.post(
@@ -70,7 +93,7 @@ async def process_elma_document(
     task = await task_repository.add_task(
         document_id=document_id,
         base64_document=None,
-        document_type=document.type_name_,
+        document_type=extract_document_type_from_url(document.url),
         state=State.WAITING,
         call_type=CallType.FILL_RAG,
         metadata={
@@ -117,7 +140,7 @@ async def load_documents_from_elma(
         task = await task_repository.add_task(
             document_id=document.id_ or "unknown",
             base64_document=None,
-            document_type=document.type_name_,
+            document_type=extract_document_type_from_url(document.url),
             state=State.WAITING,
             call_type=CallType.FILL_RAG,
             metadata={

@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.api.routes.elma_routes import router as elma_router
+from app.api.routes.elma_routes import router as elma_router, extract_document_type_from_url
 from app.api.deps import get_current_user, get_elma_service, get_task_repository
 from app.schemas.schemas import ElmaDocument, State, Task, CallType
 from app.services.elma_service import ElmaService
@@ -58,7 +58,7 @@ def sample_elma_documents():
         ElmaDocument(
             __id="doc-1",
             __name="Документ 1",
-            url="https://elma365.example.com/download/1",
+            url="https://elma365.example.com/app/chancellery/dogovor/doc-1",
             subject="Тема 1",
             description="Описание 1",
             __createdAt="2025-01-01T10:00:00Z",
@@ -70,7 +70,7 @@ def sample_elma_documents():
         ElmaDocument(
             __id="doc-2",
             __name="Документ 2",
-            url="https://elma365.example.com/download/2",
+            url="https://elma365.example.com/app/chancellery/schet/doc-2",
             subject="Тема 2",
             description="Описание 2",
             __createdAt="2025-01-02T10:00:00Z",
@@ -229,7 +229,7 @@ class TestProcessElmaDocument:
         assert call_kwargs["base64_document"] is None
         assert call_kwargs["call_type"] == CallType.FILL_RAG
         assert call_kwargs["state"] == State.WAITING
-        assert call_kwargs["metadata"]["url"] == "https://elma365.example.com/download/1"
+        assert call_kwargs["metadata"]["url"] == "https://elma365.example.com/app/chancellery/dogovor/doc-1"
 
     def test_returns_404_when_document_not_found(
         self, elma_client, mock_elma_service, sample_elma_documents
@@ -281,7 +281,7 @@ class TestProcessElmaDocument:
         # Assert
         call_kwargs = mock_task_repository.add_task.call_args[1]
         metadata = call_kwargs["metadata"]
-        assert metadata["url"] == "https://elma365.example.com/download/1"
+        assert metadata["url"] == "https://elma365.example.com/app/chancellery/dogovor/doc-1"
         assert metadata["__id"] == "doc-1"
         assert metadata["__name"] == "Документ 1"
         assert metadata["subject"] == "Тема 1"
@@ -474,7 +474,7 @@ class TestLoadDocumentsFromElma:
         assert first_call[1]["call_type"] == CallType.FILL_RAG
         assert first_call[1]["base64_document"] is None
         assert first_call[1]["state"] == State.WAITING
-        assert first_call[1]["metadata"]["url"] == "https://elma365.example.com/download/1"
+        assert first_call[1]["metadata"]["url"] == "https://elma365.example.com/app/chancellery/dogovor/doc-1"
 
 
 # ──────────────────────────────────────────────
