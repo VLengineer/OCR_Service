@@ -9,6 +9,7 @@ from app.repositories.task_model import TaskModel
 from app.schemas.schemas import State, Task, CallType
 from uuid import UUID
 from typing import List, Optional
+from datetime import datetime, timedelta, timezone
 import logging
 
 logger = logging.getLogger(__name__)
@@ -92,6 +93,32 @@ class TaskRepository:
             select(func.count(TaskModel.id)).where(TaskModel.state == state.value)
         )
         return result.scalar_one()
+
+    async def get_stuck_processing_tasks(
+        self,
+        timeout_sec: int,
+    ) -> List[Task]:
+        """
+        Возвращает задачи в состоянии PROCESSING, которые находятся
+        в этом состоянии дольше указанного таймаута (зависшие задачи).
+
+        Проверка идёт по полю updated_at: если с момента последнего
+        обновления прошло больше timeout_sec секунд, задача считается зависшей.
+
+        Args:
+            timeout_sec: Порог зависания в секундах.
+
+        Returns:
+            List[Task]: Список зависших PROCESSING задач.
+        """
+        cutoff = datetime.now(timezone.utc) - timedelta(seconds=timeout_sec)
+        result = await self._session.execute(
+            select(TaskModel)
+            .where(TaskModel.state == State.PROCESSING.value)
+            .where(TaskModel.updated_at < cutoff)
+            .order_by(TaskModel.updated_at.asc())
+        )
+        return [self._to_domain(row) for row in result.scalars().all()]
 
     # ──────────────────────────────────────────────
     # Update

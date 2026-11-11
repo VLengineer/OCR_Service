@@ -9,6 +9,7 @@ from typing import Any
 import httpx
 
 from app.core.config import settings
+from app.core.utils import sanitize_url
 from app.schemas.schemas import OCRRequest, FillRagRequest
 
 logger = logging.getLogger(__name__)
@@ -24,6 +25,9 @@ class RequestService:
     async def _get_client(self) -> httpx.AsyncClient:
         """Получает или создаёт HTTP клиент."""
         if self._client is None or self._client.is_closed:
+            logger.info(
+                f"Создание HTTP клиента: timeout={settings.n8n_request_timeout_sec}s"
+            )
             self._client = httpx.AsyncClient(
                 timeout=httpx.Timeout(settings.n8n_request_timeout_sec)
             )
@@ -50,12 +54,14 @@ class RequestService:
         """
         client = await self._get_client()
         url = settings.n8n_ocr_webhook_url
+        sanitized_url = sanitize_url(url)
 
         try:
             logger.info(
                 f"Отправка OCR запроса: task_id={request.task_id}, "
                 f"document_id={request.document_id}, "
-                f"pages={len(request.base64_document)}"
+                f"pages={len(request.base64_document)}, "
+                f"url={sanitized_url}"
             )
 
             headers = {
@@ -73,25 +79,34 @@ class RequestService:
             result = response.json()
             logger.info(
                 f"OCR запрос успешен: task_id={request.task_id}, "
-                f"document_id={request.document_id}"
+                f"document_id={request.document_id}, "
+                f"status_code={response.status_code}"
             )
             return result
 
+        except httpx.ConnectError as e:
+            logger.error(
+                f"Ошибка подключения OCR запроса: task_id={request.task_id}, "
+                f"document_id={request.document_id}, url={sanitized_url}, error={e}"
+            )
+            raise
         except httpx.TimeoutException as e:
             logger.error(
                 f"Таймаут OCR запроса: task_id={request.task_id}, "
-                f"document_id={request.document_id}, error={e}"
+                f"document_id={request.document_id}, url={sanitized_url}, "
+                f"timeout={settings.n8n_request_timeout_sec}s, error={e}"
             )
             raise
         except httpx.HTTPStatusError as e:
             logger.error(
                 f"HTTP ошибка OCR запроса: status={e.response.status_code}, "
-                f"task_id={request.task_id}, error={e}"
+                f"task_id={request.task_id}, url={sanitized_url}, error={e}"
             )
             raise
         except Exception as e:
             logger.error(
-                f"Ошибка OCR запроса: task_id={request.task_id}, error={e}"
+                f"Ошибка OCR запроса: task_id={request.task_id}, "
+                f"url={sanitized_url}, error={e}"
             )
             raise
 
@@ -110,11 +125,13 @@ class RequestService:
         """
         client = await self._get_client()
         url = settings.n8n_fill_rag_webhook_url
+        sanitized_url = sanitize_url(url)
 
         try:
             logger.info(
                 f"Отправка fill_rag запроса: task_id={request.task_id}, "
-                f"__id={request.id}, __name={request.name}"
+                f"__id={request.id}, __name={request.name}, "
+                f"url={sanitized_url}"
             )
 
             # by_alias=True — n8n ожидает ключи с алиасами (__id, __name, __createdAt и т.д.)
@@ -133,24 +150,32 @@ class RequestService:
             result = response.json()
             logger.info(
                 f"fill_rag запрос успешен: task_id={request.task_id}, "
-                f"__id={request.id}"
+                f"__id={request.id}, status_code={response.status_code}"
             )
             return result
 
+        except httpx.ConnectError as e:
+            logger.error(
+                f"Ошибка подключения fill_rag запроса: task_id={request.task_id}, "
+                f"__id={request.id}, url={sanitized_url}, error={e}"
+            )
+            raise
         except httpx.TimeoutException as e:
             logger.error(
                 f"Таймаут fill_rag запроса: task_id={request.task_id}, "
-                f"__id={request.id}, error={e}"
+                f"__id={request.id}, url={sanitized_url}, "
+                f"timeout={settings.n8n_request_timeout_sec}s, error={e}"
             )
             raise
         except httpx.HTTPStatusError as e:
             logger.error(
                 f"HTTP ошибка fill_rag запроса: status={e.response.status_code}, "
-                f"task_id={request.task_id}, error={e}"
+                f"task_id={request.task_id}, url={sanitized_url}, error={e}"
             )
             raise
         except Exception as e:
             logger.error(
-                f"Ошибка fill_rag запроса: task_id={request.task_id}, error={e}"
+                f"Ошибка fill_rag запроса: task_id={request.task_id}, "
+                f"url={sanitized_url}, error={e}"
             )
             raise

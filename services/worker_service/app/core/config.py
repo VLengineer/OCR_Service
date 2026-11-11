@@ -86,6 +86,15 @@ class Settings(BaseSettings):
         default=3,
         description="Максимальное количество retry для задачи",
     )
+    worker_processing_timeout_sec: int = Field(
+        default=300,
+        description=(
+            "Таймаут (секунды) для задач в состоянии PROCESSING. "
+            "Если задача находится в PROCESSING дольше этого времени "
+            "(callback от n8n не пришёл), она считается зависшей и "
+            "возвращается в waiting для повторной обработки."
+        ),
+    )
 
     model_config = ConfigDict(
         env_file=".env",

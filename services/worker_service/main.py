@@ -15,6 +15,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.core.config import settings
+from app.core.utils import sanitize_url
 from app.repositories.database import init_db, close_db
 from app.services.request_service import RequestService
 from app.services.worker_service import Worker
@@ -36,6 +37,12 @@ async def lifespan(app: FastAPI):
     )
 
     logger.info("Starting Worker Service...")
+    logger.info(
+        f"Configuration: n8n_base_url={sanitize_url(settings.n8n_base_url)}, "
+        f"fill_rag_webhook={sanitize_url(settings.n8n_fill_rag_webhook_url)}, "
+        f"ocr_webhook={sanitize_url(settings.n8n_ocr_webhook_url)}, "
+        f"timeout={settings.n8n_request_timeout_sec}s"
+    )
 
     # Инициализация БД
     await init_db()

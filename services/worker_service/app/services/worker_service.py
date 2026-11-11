@@ -20,17 +20,22 @@ logger = logging.getLogger(__name__)
 class Worker:
     """
     Воркер для последовательной обработки задач.
-    
+
     Логика:
-    1. Проверяет наличие задач в состоянии processing
-    2. Если таких нет — берёт следующую waiting задачу (FIFO)
-    3. Обновляет состояние на processing
-    4. Маршрутизирует по call_type:
+    1. Берёт следующую waiting задачу (FIFO) — наличие PROCESSING задач
+       НЕ блокирует очередь, так как callback от n8n может быть долгим
+       или потерянным.
+    2. Обновляет состояние на processing.
+    3. Маршрутизирует по call_type:
        - OCR: отправляет на OCR через n8n webhook
        - FILL_RAG: отправляет на fill_rag через n8n webhook
-    5. При успехе обновляет состояние на completed
-    6. При ошибке: если retry_count < max_retries — возвращает в waiting с инкрементом retry_count,
-       иначе — устанавливает состояние error
+    4. При успехе отправки — задача остаётся в PROCESSING и ждёт
+       callback от n8n (callback переводит задачу в COMPLETED или ERROR).
+    5. При ошибке отправки: если retry_count < max_retries — возвращает
+       в waiting с инкрементом retry_count, иначе — устанавливает error.
+    6. Reaper: периодически проверяет зависшие PROCESSING задачи
+       (обновлённые дольше worker_processing_timeout_sec секунд назад)
+       и возвращает их в waiting для повторной обработки.
     """
 
     def __init__(
@@ -40,7 +45,7 @@ class Worker:
     ) -> None:
         """
         Инициализация воркера.
-        
+
         Args:
             request_service: Сервис для HTTP-запросов к n8n
             poll_interval: Интервал опроса БД в секундах
@@ -55,7 +60,13 @@ class Worker:
         Запускается как asyncio task.
         """
         self._is_running = True
-        logger.info(f"Worker started with poll interval {self._poll_interval}s")
+        logger.info(
+            f"Worker started: poll_interval={self._poll_interval}s, "
+            f"max_retries={settings.worker_max_retries}, "
+            f"n8n_base_url={settings.n8n_base_url}, "
+            f"n8n_timeout={settings.n8n_request_timeout_sec}s, "
+            f"processing_timeout={settings.worker_processing_timeout_sec}s"
+        )
 
         while self._is_running:
             try:
@@ -63,15 +74,8 @@ class Worker:
                 async with async_session() as session:
                     repository = TaskRepository(session)
 
-                    # 1. Проверяем есть ли processing задачи
-                    processing_count = await repository.count_tasks_by_state(State.PROCESSING)
-
-                    if processing_count > 0:
-                        logger.debug(
-                            f"Skipping: processing={processing_count}"
-                        )
-                        await asyncio.sleep(self._poll_interval)
-                        continue
+                    # 1. Reaper: возвращаем зависшие PROCESSING задачи в waiting
+                    await self._reap_stuck_processing(repository)
 
                     # 2. Получаем следующую waiting задачу
                     task = await repository.get_next_waiting_task()
@@ -81,11 +85,13 @@ class Worker:
                         continue
 
                     logger.info(
-                        f"Processing task: id={task.id}, document_id={task.document_id}"
+                        f"Processing task: id={task.id}, document_id={task.document_id}, "
+                        f"call_type={task.call_type}, retry_count={task.retry_count}"
                     )
 
                     # 3. Обновляем состояние на processing
                     await repository.update_task_state(task.id, State.PROCESSING)
+                    logger.debug(f"Task state updated to PROCESSING: id={task.id}")
 
                     # 4. Маршрутизация по call_type
                     try:
@@ -115,12 +121,19 @@ class Worker:
                             # Неизвестный тип задачи
                             raise ValueError(f"Unknown call_type: {task.call_type}")
 
-                        # 5. Успех -> completed
-                        await repository.update_task_state(task.id, State.COMPLETED)
-                        logger.info(f"Task completed: id={task.id}, call_type={task.call_type}")
+                        # 5. Успех -> задача остается в processing и ждет callback от n8n
+                        logger.info(
+                            f"Task sent to n8n successfully, waiting for callback: "
+                            f"id={task.id}, call_type={task.call_type}"
+                        )
 
                     except Exception as e:
                         # 6. Ошибка -> retry или error
+                        logger.exception(
+                            f"Task processing error: id={task.id}, call_type={task.call_type}, "
+                            f"retry_count={task.retry_count}, error_type={type(e).__name__}, error={e}"
+                        )
+                        
                         if task.retry_count < settings.worker_max_retries:
                             # Ещё есть попытки — возвращаем в waiting с инкрементом retry_count
                             await repository.increment_retry_and_reset_state(task.id)
@@ -137,10 +150,46 @@ class Worker:
                             )
 
             except Exception as e:
-                logger.error(f"Worker loop error: {e}")
+                logger.exception(f"Worker loop error: {e}")
                 await asyncio.sleep(self._poll_interval)
 
         logger.info("Worker stopped")
+
+    async def _reap_stuck_processing(
+        self,
+        repository: TaskRepository,
+    ) -> None:
+        """
+        Находит зависшие PROCESSING задачи (обновлённые дольше
+        worker_processing_timeout_sec секунд назад) и возвращает их
+        в waiting для повторной обработки.
+
+        Это решает проблему блокировки очереди, когда callback от n8n
+        потерян или задерживается неопределённо долго.
+        """
+        try:
+            stuck_tasks = await repository.get_stuck_processing_tasks(
+                timeout_sec=settings.worker_processing_timeout_sec,
+            )
+            for task in stuck_tasks:
+                if task.retry_count < settings.worker_max_retries:
+                    await repository.increment_retry_and_reset_state(task.id)
+                    logger.warning(
+                        f"Reaped stuck PROCESSING task: id={task.id}, "
+                        f"call_type={task.call_type}, "
+                        f"retry_count={task.retry_count + 1}/{settings.worker_max_retries}, "
+                        f"reset to waiting"
+                    )
+                else:
+                    await repository.update_task_state(task.id, State.ERROR)
+                    logger.error(
+                        f"Reaped stuck PROCESSING task (max retries exceeded): "
+                        f"id={task.id}, call_type={task.call_type}, "
+                        f"retry_count={task.retry_count}/{settings.worker_max_retries}, "
+                        f"set to error"
+                    )
+        except Exception as e:
+            logger.exception(f"Error reaping stuck PROCESSING tasks: {e}")
 
     async def stop(self) -> None:
         """Graceful shutdown воркера."""
