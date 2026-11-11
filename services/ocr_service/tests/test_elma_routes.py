@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.api.routes.elma_routes import router as elma_router, extract_document_type_from_url
+from app.api.routes.elma_routes import router as elma_router, INCOMING_CORRESPONDENCE_TYPE
 from app.api.deps import get_current_user, get_elma_service, get_task_repository
 from app.schemas.schemas import ElmaDocument, State, Task, CallType
 from app.services.elma_service import ElmaService
@@ -89,7 +89,7 @@ def sample_task():
     return Task(
         id=uuid4(),
         document_id="doc-1",
-        document_type="Договоры",
+        document_type=INCOMING_CORRESPONDENCE_TYPE,
         state=State.WAITING,
         retry_count=0,
         base64_document=[],
