@@ -76,7 +76,8 @@ class FillRagRequest(BaseModel):
     subject: Optional[str] = Field(default=None, description="Тема/предмет")
     description: Optional[str] = Field(default=None, description="Описание")
     created_at: str = Field(alias="__createdAt", description="Дата создания записи")
-    counterparty: Optional[str] = Field(default=None, description="Контрагент")
-    decision_maker: Optional[str] = Field(default=None, alias="decisionMaker", description="Лицо, принимающее решение")
+    # ELMA365 возвращает counterparty и decisionMaker как массивы UUID
+    counterparty: Optional[list[str] | str] = Field(default=None, description="Контрагент (массив UUID или строка)")
+    decision_maker: Optional[list[str] | str] = Field(default=None, alias="decisionMaker", description="Лицо, принимающее решение (массив UUID или строка)")
     register_name: Optional[str] = Field(default=None, alias="__register_name", description="Имя реестра")
     registration_date: Optional[str] = Field(default=None, alias="registrationDate", description="Дата регистрации")

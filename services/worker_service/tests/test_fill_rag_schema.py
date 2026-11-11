@@ -294,3 +294,51 @@ class TestFillRagRequestFromMetadata:
 
         with pytest.raises(ValidationError):
             FillRagRequest(**metadata)
+
+    def test_create_from_metadata_with_list_counterparty(self):
+        """ELMA365 возвращает counterparty как массив UUID — должно приниматься."""
+        metadata = {
+            "url": "https://example.com/doc/1",
+            "__id": "0197b1b1-9a3f-72ec-874f-cb52f3bd3932",
+            "__name": "Test Document",
+            "__createdAt": "2025-06-27T14:04:16Z",
+            "counterparty": ["0197b0fe-9a79-702b-a5af-934d57a45c95"],
+            "decisionMaker": ["05e8eeb1-ab3a-4425-acad-216e6cb1a263"],
+        }
+
+        request = FillRagRequest(**metadata)
+
+        assert request.counterparty == ["0197b0fe-9a79-702b-a5af-934d57a45c95"]
+        assert request.decision_maker == ["05e8eeb1-ab3a-4425-acad-216e6cb1a263"]
+
+    def test_create_from_metadata_with_string_counterparty(self):
+        """counterparty может быть и строкой — обратная совместимость."""
+        metadata = {
+            "url": "https://example.com/doc/1",
+            "__id": "rec-001",
+            "__name": "Test Document",
+            "__createdAt": "2025-01-01T00:00:00Z",
+            "counterparty": "ООО Пример",
+            "decisionMaker": "Иванов И.И.",
+        }
+
+        request = FillRagRequest(**metadata)
+
+        assert request.counterparty == "ООО Пример"
+        assert request.decision_maker == "Иванов И.И."
+
+    def test_serialization_preserves_list_counterparty(self):
+        """model_dump(by_alias=True) сохраняет list как list для n8n."""
+        request = FillRagRequest(
+            url="https://example.com/doc/1",
+            __id="rec-001",
+            __name="Test Document",
+            __createdAt="2025-01-01T00:00:00Z",
+            counterparty=["0197b0fe-9a79-702b-a5af-934d57a45c95"],
+            decisionMaker=["05e8eeb1-ab3a-4425-acad-216e6cb1a263"],
+        )
+
+        dumped = request.model_dump(mode="json", by_alias=True)
+
+        assert dumped["counterparty"] == ["0197b0fe-9a79-702b-a5af-934d57a45c95"]
+        assert dumped["decisionMaker"] == ["05e8eeb1-ab3a-4425-acad-216e6cb1a263"]
