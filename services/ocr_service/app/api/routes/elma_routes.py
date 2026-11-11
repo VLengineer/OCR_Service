@@ -87,6 +87,8 @@ async def process_elma_document(
             "decisionMaker": document.decision_maker,
             "__register_name": document.register_name_,
             "registrationDate": document.registration_date,
+            "__file": document.file_,
+            "outgoingCorrespondence": document.outgoing_correspondence,
         },
     )
 
@@ -134,6 +136,8 @@ async def load_documents_from_elma(
                 "decisionMaker": document.decision_maker,
                 "__register_name": document.register_name_,
                 "registrationDate": document.registration_date,
+                "__file": document.file_,
+                "outgoingCorrespondence": document.outgoing_correspondence,
             },
         )
         created_tasks.append(task)

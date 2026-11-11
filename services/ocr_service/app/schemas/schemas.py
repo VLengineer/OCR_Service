@@ -33,6 +33,8 @@ class ElmaDocument(BaseModel):
     type_name_: str | None = Field(default=None, alias="__type_name", description="Имя типа документа")
     version_: int | str | None = Field(default=None, alias="__version", description="Версия документа")
     registration_date: str | None = Field(default=None, alias="registrationDate", description="Дата регистрации")
+    file_: list[str] | None = Field(default=None, alias="__file", description="Список ID файлов документа")
+    outgoing_correspondence: list | None = Field(default=None, alias="outgoingCorrespondence", description="Связанные исходящие документы")
 
     model_config = {"populate_by_name": True}
 
