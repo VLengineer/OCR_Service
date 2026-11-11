@@ -18,6 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.repositories.database import init_db, close_db
 from app.api.routes import auth_routes, document_routes, task_routes, direct_ocr_routes, recognition_routes, vector_routes, convert_routes, elma_routes
+from app.middleware.request_logger import RequestLoggingMiddleware
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +57,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Request logging middleware
+app.add_middleware(RequestLoggingMiddleware)
 
 # Подключаем роутеры
 app.include_router(auth_routes.router)

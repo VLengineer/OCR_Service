@@ -48,7 +48,7 @@ class ElmaService:
 
         try:
             async with httpx.AsyncClient(timeout=self._timeout) as client:
-                response = await client.post(url, headers=self._auth_headers(), json={"active": True, "size": 2000})
+                response = await client.post(url, headers=self._auth_headers(), json={"active": True, "size": 5})
                 response.raise_for_status()
 
                 data = response.json()

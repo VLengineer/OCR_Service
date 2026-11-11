@@ -70,7 +70,7 @@ async def process_elma_document(
     task = await task_repository.add_task(
         document_id=document_id,
         base64_document=None,
-        document_type=document.register_name_,
+        document_type=document.type_name_,
         state=State.WAITING,
         call_type=CallType.FILL_RAG,
         metadata={
@@ -117,7 +117,7 @@ async def load_documents_from_elma(
         task = await task_repository.add_task(
             document_id=document.id_ or "unknown",
             base64_document=None,
-            document_type=document.register_name_,
+            document_type=document.type_name_,
             state=State.WAITING,
             call_type=CallType.FILL_RAG,
             metadata={
