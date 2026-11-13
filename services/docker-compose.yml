@@ -21,6 +21,7 @@ services:
       # ── Ollama ──
       OLLAMA_HOST: ollama_dev
       OLLAMA_PORT: 9002
+      OLLAMA_EMBEDDING_MODEL: ${OLLAMA_EMBEDDING_MODEL:-hf.co/unsloth/embeddinggemma-2-GGUF:UD-Q6_K_XL}
       # ── n8n ──
       N8N_BASE_URL: ${N8N_BASE_URL:-http://n8n_dev:9000}
       N8N_REQUEST_TIMEOUT_SEC: ${N8N_REQUEST_TIMEOUT_SEC:-30}
@@ -34,6 +35,14 @@ services:
       JWT_SECRET: ${JWT_SECRET:-your-secret-key-change-in-production}
       JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-30}
+    # Лимит памяти: защита от OOM Killer (контейнер съедал 20+ ГБ RAM).
+    # Увеличен до 4G/1G, т.к. 2G не хватает для загрузки/работы OCR-моделей.
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 1G
     networks:
       - app_net_dev
 

@@ -3,6 +3,7 @@
 Координирует чанкинг, получение эмбеддингов и сохранение в БД.
 """
 
+import gc
 import logging
 
 from app.repositories.document_vector_repository import DocumentVectorRepository
@@ -38,6 +39,7 @@ class DocumentVectorService:
             DocumentVectorizeResponse: Результат векторизации.
         """
         logger.info("Начало векторизации: document_id=%s", request.document_id)
+        logger.info("Размер текста: %d символов, document_id=%s", len(request.content), request.document_id)
 
         # 1. Разбиваем текст на чанки
         chunks = self._chunking_service.split(request.content)
@@ -49,24 +51,34 @@ class DocumentVectorService:
             )
 
         logger.info("Документ %s разбит на %d чанков", request.document_id, len(chunks))
+        logger.info("Общий размер чанков: %d символов", sum(len(c) for c in chunks))
 
         # 2. Получаем эмбеддинги для всех чанков
         embeddings = await self._embedding_service.embed_batch(chunks)
 
         # 3. Формируем строки для вставки
         rows = []
-        for chunk, embedding in zip(chunks, embeddings):
+        for chunk_text, embedding in zip(chunks, embeddings):
             rows.append({
                 "document_id": request.document_id,
                 "response_id": request.response_id,
                 "counterparty_id": request.counterparty_id,
-                "content": chunk,
+                "content": chunk_text,
                 "embedding": str(embedding),
                 "metadata": request.metadata,
             })
 
+        # Освобождаем промежуточные объекты для экономии памяти
+        del chunks
+        del embeddings
+        gc.collect()
+
         # 4. Сохраняем в БД
         count = await self._repository.save_all(rows)
+
+        # Освобождаем rows
+        del rows
+        gc.collect()
 
         logger.info("Векторизация завершена: document_id=%s, chunks=%d", request.document_id, count)
         return DocumentVectorizeResponse(
