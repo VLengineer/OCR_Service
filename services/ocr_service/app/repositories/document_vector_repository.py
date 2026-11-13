@@ -78,7 +78,7 @@ class DocumentVectorRepository:
             )
 
         await self._session.flush()
-        await self._session.expire_all()
+        self._session.expire_all()
         logger.info(
             "Сохранено %d векторов для document_id=%s",
             total_inserted,

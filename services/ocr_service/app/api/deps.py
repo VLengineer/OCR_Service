@@ -106,8 +106,15 @@ async def get_chunking_service() -> ChunkingService:
 
 
 async def get_embedding_service() -> EmbeddingService:
-    """Создаёт сервис получения эмбеддингов через Ollama."""
-    return EmbeddingService()
+    """Создаёт сервис получения эмбеддингов через Ollama.
+    
+    Yield позволяет корректно закрыть HTTP-клиент после использования.
+    """
+    service = EmbeddingService()
+    try:
+        yield service
+    finally:
+        await service.close()
 
 
 async def get_document_vector_repository(
