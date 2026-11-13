@@ -14,15 +14,15 @@ class Base(DeclarativeBase):
 engine = create_async_engine(
     settings.database_url,
     echo=settings.log_level == "DEBUG",
-    pool_size=20,
-    max_overflow=10,
+    pool_size=5,
+    max_overflow=5,
     pool_pre_ping=True,
 )
 
 async_session = async_sessionmaker(
     engine,
     class_=AsyncSession,
-    expire_on_commit=False,
+    expire_on_commit=True,  # Освобождать объекты после коммита для экономии памяти
 )
 
 async def get_session() -> AsyncGenerator[AsyncSession, None]:
