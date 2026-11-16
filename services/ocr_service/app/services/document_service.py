@@ -3,10 +3,9 @@
 Определяет тип документа и направляет на соответствующую обработку.
 """
 
-import base64
 import logging
 
-from app.schemas.schemas import Document, DocumentRequest, OCRRequest
+from app.schemas.schemas import Document
 from app.services.document_converter import DocumentConverter, DocumentType
 from app.services.request_service import RequestService
 from app.repositories.task_repository import TaskRepository
@@ -42,10 +41,11 @@ class DocumentService:
 
         Логика:
         1. Определяет тип документа
-        2. Маршрутизирует:
-           - Word/PDF с текстом → извлечение текста → n8n create_document
-           - Изображение → base64 → задача OCR (1 страница)
-           - PDF-скан → страницы в картинки → задача OCR (массив)
+        2. Конвертирует документ в изображения (unified pipeline):
+           - Word → PDF (LibreOffice) → изображения
+           - PDF → изображения
+           - Изображение → base64
+        3. Создаёт задачу OCR с массивом страниц
 
         Args:
             document: Документ для обработки
@@ -58,67 +58,26 @@ class DocumentService:
             doc_type = self._document_converter.detect_document_type(document.document_base64)
             logger.info(f"Тип документа: {doc_type}")
 
-            if doc_type == DocumentType.WORD:
-                # Word документ - извлекаем текст и отправляем
-                text = self._document_converter.extract_text_from_word(document.document_base64)
+            # Конвертируем документ в изображения по unified pipeline
+            images_base64 = self._convert_to_images(
+                doc_type, document.document_base64
+            )
+            logger.debug(
+                f"Конвертация завершена: id={document_id}, "
+                f"страниц={len(images_base64)}, "
+                f"первый_размер={len(images_base64[0]) if images_base64 else 0}"
+            )
 
-                document_request = DocumentRequest(
-                    document_id=document_id,
-                    raw_text=text,
-                    document_type=document.document_type,
-                )
-
-                await self._request_service.create_document(document_request)
-                logger.info(f"Word документ обработан: id={document_id}")
-
-            elif doc_type == DocumentType.PDF_TEXT:
-                # PDF с текстом - извлекаем текст и отправляем
-                text = self._document_converter.extract_text_from_pdf_with_text(
-                    document.document_base64
-                )
-
-                document_request = DocumentRequest(
-                    document_id=document_id,
-                    raw_text=text,
-                    document_type=document.document_type,
-                )
-
-                await self._request_service.create_document(document_request)
-                logger.info(f"PDF с текстом обработан: id={document_id}")
-
-            elif doc_type == DocumentType.IMAGE:
-                # Изображение - конвертируем в base64 и создаём задачу OCR
-                image_bytes = base64.b64decode(document.document_base64)
-                image_base64 = self._document_converter.convert_image_to_base64(image_bytes)
-
-                ocr_request = OCRRequest(
-                    document_id=document_id,
-                    base64_document=[image_base64],
-                    document_type=document.document_type,
-                )
-
-                await self._task_repository.add_task(
-                    document_id=document_id,
-                    base64_document=[image_base64],
-                    document_type=document.document_type,
-                )
-                logger.info(f"Изображение отправлено на OCR: id={document_id}")
-
-            elif doc_type == DocumentType.PDF_SCAN:
-                # PDF-скан - конвертируем в изображения и создаём задачу OCR
-                images_base64 = self._document_converter.convert_pdf_to_images(
-                    document.document_base64
-                )
-
-                await self._task_repository.add_task(
-                    document_id=document_id,
-                    base64_document=images_base64,
-                    document_type=document.document_type,
-                )
-                logger.info(
-                    f"PDF-скан отправлен на OCR: id={document_id}, "
-                    f"страниц={len(images_base64)}"
-                )
+            # Создаём задачу OCR
+            await self._task_repository.add_task(
+                document_id=document_id,
+                base64_document=images_base64,
+                document_type=document.document_type,
+            )
+            logger.info(
+                f"Документ отправлен на OCR: id={document_id}, "
+                f"страниц={len(images_base64)}"
+            )
 
             logger.info(f"Документ успешно обработан: id={document_id}")
 
@@ -128,4 +87,37 @@ class DocumentService:
             )
             raise
 
+    def _convert_to_images(
+        self, doc_type: DocumentType, document_base64: str
+    ) -> list[str]:
+        """
+        Конвертирует документ в список изображений base64.
 
+        Args:
+            doc_type: Тип документа
+            document_base64: Документ в формате base64
+
+        Returns:
+            list[str]: Список base64 изображений страниц
+
+        Raises:
+            ValueError: Если тип документа не поддерживается
+        """
+        if doc_type == DocumentType.WORD:
+            logger.info("Конвертация Word документа в изображения")
+            pdf_base64 = self._document_converter.convert_word_to_pdf(
+                document_base64
+            )
+            return self._document_converter.convert_pdf_to_images(pdf_base64)
+
+        if doc_type == DocumentType.PDF:
+            logger.info("Конвертация PDF документа в изображения")
+            return self._document_converter.convert_pdf_to_images(
+                document_base64
+            )
+
+        if doc_type == DocumentType.IMAGE:
+            logger.info("Подготовка изображения для OCR")
+            return [document_base64]
+
+        raise ValueError(f"Неподдерживаемый тип документа: {doc_type}")

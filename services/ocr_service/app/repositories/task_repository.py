@@ -19,6 +19,21 @@ class TaskRepository:
     def __init__(self, session: AsyncSession):
         self._session = session
 
+    async def _rollback_on_error(self, operation: str, exc: Exception) -> None:
+        """
+        Откатывает транзакцию при ошибке БД.
+
+        Без отката соединение остаётся в «грязной» транзакции и
+        удерживается до закрытия сессии, что ведёт к утечке соединений пула.
+        Ошибка логируется с контекстом операции и пробрасывается выше.
+        """
+        await self._session.rollback()
+        logger.error(
+            "Ошибка БД при операции '%s': %s",
+            operation,
+            type(exc).__name__,
+        )
+
     # ──────────────────────────────────────────────
     # Вспомогательные методы конвертации
     # ──────────────────────────────────────────────
@@ -99,9 +114,13 @@ class TaskRepository:
             metadata_=metadata,
         )
 
-        self._session.add(task)
-        await self._session.flush()
-        await self._session.refresh(task)
+        try:
+            self._session.add(task)
+            await self._session.flush()
+            await self._session.refresh(task)
+        except Exception as exc:
+            await self._rollback_on_error("add_task", exc)
+            raise
 
         logger.info(f"Task created: id={task.id}, document_id={document_id}, state={state}")
         return self._to_domain(task)
@@ -117,9 +136,13 @@ class TaskRepository:
         Returns:
             Task | None: Задача или None если не найдена
         """
-        result = await self._session.execute(
-            select(TaskModel).where(TaskModel.id == task_id)
-        )
+        try:
+            result = await self._session.execute(
+                select(TaskModel).where(TaskModel.id == task_id)
+            )
+        except Exception as exc:
+            await self._rollback_on_error("get_task_by_id", exc)
+            raise
         task_model = result.scalar_one_or_none()
         return self._to_domain(task_model) if task_model else None
 
@@ -130,12 +153,16 @@ class TaskRepository:
         Returns:
             List[Task]: Список задач
         """
-        result = await self._session.execute(
-            select(TaskModel)
-            .where(TaskModel.state == state.value)
-            .order_by(TaskModel.created_at.asc())
-            .limit(limit)
-        )
+        try:
+            result = await self._session.execute(
+                select(TaskModel)
+                .where(TaskModel.state == state.value)
+                .order_by(TaskModel.created_at.asc())
+                .limit(limit)
+            )
+        except Exception as exc:
+            await self._rollback_on_error("get_tasks_by_state", exc)
+            raise
         return [self._to_domain(m) for m in result.scalars().all()]
 
     async def get_next_waiting_task(self) -> Optional[Task]:
@@ -145,12 +172,16 @@ class TaskRepository:
         Returns:
             Task | None: Следующая задача или None если очередь пуста
         """
-        result = await self._session.execute(
-            select(TaskModel)
-            .where(TaskModel.state == State.WAITING.value)
-            .order_by(TaskModel.created_at.asc())
-            .limit(1)
-        )
+        try:
+            result = await self._session.execute(
+                select(TaskModel)
+                .where(TaskModel.state == State.WAITING.value)
+                .order_by(TaskModel.created_at.asc())
+                .limit(1)
+            )
+        except Exception as exc:
+            await self._rollback_on_error("get_next_waiting_task", exc)
+            raise
         task_model = result.scalar_one_or_none()
         return self._to_domain(task_model) if task_model else None
 
@@ -161,9 +192,13 @@ class TaskRepository:
         Returns:
             int: Количество задач
         """
-        result = await self._session.execute(
-            select(func.count(TaskModel.id)).where(TaskModel.state == state.value)
-        )
+        try:
+            result = await self._session.execute(
+                select(func.count(TaskModel.id)).where(TaskModel.state == state.value)
+            )
+        except Exception as exc:
+            await self._rollback_on_error("count_tasks_by_state", exc)
+            raise
         return result.scalar_one()
 
     # ──────────────────────────────────────────────
@@ -181,12 +216,16 @@ class TaskRepository:
         Returns:
             Task | None: Обновленная задача или None если не найдена
         """
-        await self._session.execute(
-            update(TaskModel)
-            .where(TaskModel.id == task_id)
-            .values(state=new_state.value)
-        )
-        await self._session.flush()
+        try:
+            await self._session.execute(
+                update(TaskModel)
+                .where(TaskModel.id == task_id)
+                .values(state=new_state.value)
+            )
+            await self._session.flush()
+        except Exception as exc:
+            await self._rollback_on_error("update_task_state", exc)
+            raise
 
         return await self.get_task_by_id(task_id)
 
@@ -201,12 +240,16 @@ class TaskRepository:
         Returns:
             Task | None: Обновленная задача или None если не найдена
         """
-        await self._session.execute(
-            update(TaskModel)
-            .where(TaskModel.id == task_id)
-            .values(base64_document=self._sheets_to_jsonb(base64_document))
-        )
-        await self._session.flush()
+        try:
+            await self._session.execute(
+                update(TaskModel)
+                .where(TaskModel.id == task_id)
+                .values(base64_document=self._sheets_to_jsonb(base64_document))
+            )
+            await self._session.flush()
+        except Exception as exc:
+            await self._rollback_on_error("update_task_base64", exc)
+            raise
 
         return await self.get_task_by_id(task_id)
 
@@ -221,10 +264,14 @@ class TaskRepository:
         Returns:
             bool: True если задача удалена, False если не найдена
         """
-        result = await self._session.execute(
-            delete(TaskModel).where(TaskModel.id == task_id)
-        )
-        await self._session.flush()
+        try:
+            result = await self._session.execute(
+                delete(TaskModel).where(TaskModel.id == task_id)
+            )
+            await self._session.flush()
+        except Exception as exc:
+            await self._rollback_on_error("remove_task", exc)
+            raise
 
         deleted = result.rowcount > 0
         if deleted:

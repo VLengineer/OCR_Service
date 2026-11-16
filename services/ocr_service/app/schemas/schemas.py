@@ -4,6 +4,19 @@ from enum import StrEnum
 from typing import List, Optional
 from datetime import datetime
 
+# Максимальный размер одного документа в base64 (~64 МБ после кодирования).
+# Ограничение защищает сервис от неограниченного потребления памяти
+# при приёме больших документов: каждая base64-строка удерживается
+# в памяти минимум дважды (JSON-тело + Pydantic-модель), а при отправке
+# в n8n создаётся ещё одна копия через model_dump.
+MAX_BASE64_DOCUMENT_LENGTH = 70_000_000
+
+# Максимальное число страниц в массиве base64_document.
+# Страницы изображений после конвертации PDF занимают значительный объём
+# памяти; ограничение предотвращает OOM при приёме документов
+# с аномально большим числом страниц.
+MAX_BASE64_DOCUMENT_PAGES = 200
+
 class State(StrEnum):
     WAITING = "waiting"
     PROCESSING = "processing"
@@ -47,7 +60,11 @@ class Task(BaseModel):
     document_type: str | None = Field(default=None, description="Тип документа из ELMA365")
     state: State = Field(default=State.WAITING, description="Состояние задачи")
     retry_count: int = Field(default=0, description="Количество попыток обработки")
-    base64_document: List[str] = Field(default_factory=list, description="Массив страниц в формате base64")
+    base64_document: List[str] = Field(
+        default_factory=list,
+        max_length=MAX_BASE64_DOCUMENT_PAGES,
+        description="Массив страниц в формате base64",
+    )
     call_type: CallType = Field(default=CallType.OCR, description="Тип вызова: ocr или fill_rag")
     metadata: Optional[dict] = Field(default=None, description="Дополнительные метаданные задачи")
     created_at: datetime = Field(description="Время создания задачи")
@@ -60,7 +77,11 @@ class Document(BaseModel):
     Тело запроса полученное из ELMA365
     """
     document_id: str = Field(description="ID документа из ELMA365")
-    document_base64: str = Field(description="Документ в формате base64")
+    document_base64: str = Field(
+        min_length=1,
+        max_length=MAX_BASE64_DOCUMENT_LENGTH,
+        description="Документ в формате base64",
+    )
     document_type: str | None = Field(default=None, description="Тип документа")
 
 class CallbackResponse(BaseModel):
@@ -77,7 +98,11 @@ class OCRRequest(BaseModel):
     """
     task_id: UUID | None = Field(default=None, description="ID задачи")
     document_id: str = Field(description="ID документа из ELMA365")
-    base64_document: List[str] = Field(default_factory=list, description="Массив страниц в формате base64")
+    base64_document: List[str] = Field(
+        default_factory=list,
+        max_length=MAX_BASE64_DOCUMENT_PAGES,
+        description="Массив страниц в формате base64",
+    )
     document_type: str | None = Field(default=None, description="Тип документа")
 
 class DocumentRequest(BaseModel):
@@ -95,7 +120,7 @@ class DocumentVectorizeRequest(BaseModel):
     document_id: str = Field(..., max_length=50, description="ID документа")
     response_id: str | None = Field(default=None, max_length=50, description="ID ответа")
     counterparty_id: str | None = Field(default=None, max_length=50, description="ID контрагента")
-    content: str = Field(..., min_length=1, description="Текст документа для векторизации")
+    content: str = Field(..., min_length=1, max_length=5_000_000, description="Текст документа для векторизации")
     metadata: dict | None = Field(default=None, description="Метаданные документа")
 
 
@@ -107,18 +132,27 @@ class DocumentVectorizeResponse(BaseModel):
 
 class DocumentConvertRequest(BaseModel):
     """Запрос на конвертацию документа."""
-    document_base64: str = Field(description="Документ в формате base64")
+    document_base64: str = Field(
+        min_length=1,
+        max_length=MAX_BASE64_DOCUMENT_LENGTH,
+        description="Документ в формате base64",
+    )
 
 
 class DocumentConvertResponse(BaseModel):
     """Ответ после конвертации документа."""
-    document_type: str = Field(description="Тип документа: word, pdf_text, pdf_scan, image")
-    document_sheets: List[str] = Field(description="Массив страниц/листов в base64 или текст")
+    document_type: str = Field(description="Тип документа: word, pdf, image")
+    document_sheets: List[str] = Field(description="Массив страниц/листов в base64")
 
 
 class RecognitionRequest(BaseModel):
     """Запрос на распознавание документа. Принимает только base64, тип определяется внутри."""
-    document_base64: str = Field(..., min_length=1, description="Документ в формате base64")
+    document_base64: str = Field(
+        ...,
+        min_length=1,
+        max_length=MAX_BASE64_DOCUMENT_LENGTH,
+        description="Документ в формате base64",
+    )
 
 
 class RecognitionResponse(BaseModel):

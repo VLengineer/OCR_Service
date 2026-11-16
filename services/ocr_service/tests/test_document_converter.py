@@ -3,14 +3,13 @@ Unit-тесты для DocumentConverter.
 
 Тестируются методы:
 - detect_document_type: определение типа документа
-- extract_text_from_word: извлечение текста из Word
-- extract_text_from_pdf_with_text: извлечение текста из PDF с текстом
+- convert_word_to_pdf: конвертация Word в PDF через LibreOffice
 - convert_pdf_to_images: конвертация PDF в изображения
 - convert_image_to_base64: конвертация изображения в base64
+- _clean_base64: очистка base64 от data URI префиксов
 """
 
 import base64
-import io
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -46,47 +45,17 @@ class TestDocumentConverterDetectDocumentType:
         # Assert
         assert result == DocumentType.WORD
 
-    def test_detect_pdf_with_text(self, converter):
-        """Тест определения PDF с текстовым слоем."""
-        # Arrange: мокаем fitz.Document для возврата PDF с текстом
-        with patch("app.services.document_converter.fitz.Document") as mock_fitz:
-            mock_page = MagicMock()
-            mock_page.get_text.return_value = "Текстовое содержимое"
-            mock_doc = MagicMock()
-            mock_doc.__len__ = MagicMock(return_value=1)
-            mock_doc.__getitem__ = MagicMock(return_value=mock_page)
-            mock_fitz.return_value = mock_doc
+    def test_detect_pdf_document(self, converter):
+        """Тест определения PDF документа."""
+        # Arrange: любые байты с сигнатурой %PDF распознаются как PDF
+        pdf_bytes = b"%PDF-1.4 fake content"
+        pdf_base64 = base64.b64encode(pdf_bytes).decode("utf-8")
 
-            # Создаём фейковые PDF-байты с сигнатурой %PDF
-            pdf_bytes = b"%PDF-1.4 fake content"
-            pdf_base64 = base64.b64encode(pdf_bytes).decode("utf-8")
+        # Act
+        result = converter.detect_document_type(pdf_base64)
 
-            # Act
-            result = converter.detect_document_type(pdf_base64)
-
-            # Assert
-            assert result == DocumentType.PDF_TEXT
-            mock_fitz.assert_called_once()
-
-    def test_detect_pdf_scan(self, converter):
-        """Тест определения PDF-скана (без текста)."""
-        # Arrange: мокаем fitz.Document для возврата PDF без текста
-        with patch("app.services.document_converter.fitz.Document") as mock_fitz:
-            mock_page = MagicMock()
-            mock_page.get_text.return_value = ""  # Нет текста
-            mock_doc = MagicMock()
-            mock_doc.__len__ = MagicMock(return_value=1)
-            mock_doc.__getitem__ = MagicMock(return_value=mock_page)
-            mock_fitz.return_value = mock_doc
-
-            pdf_bytes = b"%PDF-1.4 scan content"
-            pdf_base64 = base64.b64encode(pdf_bytes).decode("utf-8")
-
-            # Act
-            result = converter.detect_document_type(pdf_base64)
-
-            # Assert
-            assert result == DocumentType.PDF_SCAN
+        # Assert
+        assert result == DocumentType.PDF
 
     def test_detect_image(self, converter):
         """Тест определения изображения."""
@@ -107,8 +76,8 @@ class TestDocumentConverterDetectDocumentType:
         # Assert
         assert result == DocumentType.IMAGE
 
-    def test_detect_unknown_returns_pdf_scan(self, converter):
-        """Тест: неизвестный тип возвращается как PDF-скан."""
+    def test_detect_unknown_returns_pdf(self, converter):
+        """Тест: неизвестный тип возвращается как PDF (fallback)."""
         # Arrange: данные, которые не соответствуют ни одному типу
         unknown_bytes = b"unknown data format"
         unknown_base64 = base64.b64encode(unknown_bytes).decode("utf-8")
@@ -122,10 +91,10 @@ class TestDocumentConverterDetectDocumentType:
             result = converter.detect_document_type(unknown_base64)
 
         # Assert
-        assert result == DocumentType.PDF_SCAN
+        assert result == DocumentType.PDF
 
-    def test_detect_word_with_invalid_docx_falls_through(self, converter):
-        """Тест: невалидный DOCX (с сигнатурой PK, но не DOCX) пропускается."""
+    def test_detect_word_with_invalid_docx_returns_word(self, converter):
+        """Тест: ZIP-файл с сигнатурой PK, но невалидный для python-docx определяется как WORD."""
         # Arrange: байты с сигнатурой ZIP, но DocxDocument падает
         fake_zip_bytes = b"PK\x03\x04" + b"not a real docx"
         fake_zip_base64 = base64.b64encode(fake_zip_bytes).decode("utf-8")
@@ -140,191 +109,119 @@ class TestDocumentConverterDetectDocumentType:
             # Act
             result = converter.detect_document_type(fake_zip_base64)
 
-        # Assert: должен вернуться PDF_SCAN как fallback
-        assert result == DocumentType.PDF_SCAN
+        # Assert: должен вернуться WORD по сигнатуре ZIP
+        assert result == DocumentType.WORD
+
+    def test_detect_ole2_doc_document(self, converter):
+        """Тест: определение старого Word документа (.doc) по OLE2 сигнатуре."""
+        # Arrange: OLE2 сигнатура D0 CF 11 E0 A1 B1 1A E1
+        ole2_signature = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
+        ole2_bytes = ole2_signature + b"fake doc content"
+        ole2_base64 = base64.b64encode(ole2_bytes).decode("utf-8")
+
+        # Act
+        result = converter.detect_document_type(ole2_base64)
+
+        # Assert
+        assert result == DocumentType.WORD
 
     def test_detect_pdf_with_data_uri_prefix(self, converter):
         """Тест: base64 с префиксом data URI корректно очищается."""
         # Arrange
-        with patch("app.services.document_converter.fitz.Document") as mock_fitz:
-            mock_page = MagicMock()
-            mock_page.get_text.return_value = "Текст"
-            mock_doc = MagicMock()
-            mock_doc.__len__ = MagicMock(return_value=1)
-            mock_doc.__getitem__ = MagicMock(return_value=mock_page)
-            mock_fitz.return_value = mock_doc
+        pdf_bytes = b"%PDF-1.4 content"
+        pdf_base64 = base64.b64encode(pdf_bytes).decode("utf-8")
+        data_uri = f"data:application/pdf;base64,{pdf_base64}"
 
-            pdf_bytes = b"%PDF-1.4 content"
-            pdf_base64 = base64.b64encode(pdf_bytes).decode("utf-8")
-            data_uri = f"data:application/pdf;base64,{pdf_base64}"
+        # Act
+        result = converter.detect_document_type(data_uri)
 
-            # Act
-            result = converter.detect_document_type(data_uri)
-
-            # Assert
-            assert result == DocumentType.PDF_TEXT
+        # Assert
+        assert result == DocumentType.PDF
 
 
-class TestDocumentConverterExtractTextFromWord:
-    """Тесты для метода extract_text_from_word."""
+class TestDocumentConverterConvertWordToPdf:
+    """Тесты для метода convert_word_to_pdf."""
 
     @pytest.fixture
     def converter(self):
         """Создание экземпляра DocumentConverter."""
         return DocumentConverter()
 
-    def test_extract_text_from_word_success(self, converter):
-        """Тест успешного извлечения текста из Word."""
-        # Arrange: мокаем DocxDocument с несколькими параграфами
-        mock_para1 = MagicMock()
-        mock_para1.text = "Первый параграф"
-        mock_para2 = MagicMock()
-        mock_para2.text = "Второй параграф"
-        mock_para3 = MagicMock()
-        mock_para3.text = ""  # Пустой параграф должен быть пропущен
-        mock_para4 = MagicMock()
-        mock_para4.text = "Третий параграф"
+    def test_convert_word_to_pdf_success(self, converter):
+        """Тест успешной конвертации Word в PDF через LibreOffice."""
+        # Arrange
+        fake_docx_bytes = b"PK\x03\x04" + b"fake docx"
+        fake_docx_base64 = base64.b64encode(fake_docx_bytes).decode("utf-8")
+        fake_pdf_bytes = b"%PDF-1.4 converted"
 
-        mock_doc = MagicMock()
-        mock_doc.paragraphs = [mock_para1, mock_para2, mock_para3, mock_para4]
+        with patch("app.services.document_converter.subprocess.run") as mock_run, \
+             patch("app.services.document_converter.os.path.exists", return_value=True), \
+             patch("app.services.document_converter.tempfile.mkdtemp", return_value="/tmp/fake_dir"), \
+             patch("builtins.open", MagicMock()) as mock_open:
 
-        fake_bytes = b"PK\x03\x04" + b"fake docx"
-        fake_base64 = base64.b64encode(fake_bytes).decode("utf-8")
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout="success",
+                stderr="",
+            )
 
-        with patch(
-            "app.services.document_converter.DocxDocument",
-            return_value=mock_doc,
-        ):
+            # Мокаем чтение созданного PDF
+            mock_file = MagicMock()
+            mock_file.__enter__ = MagicMock(return_value=mock_file)
+            mock_file.__exit__ = MagicMock(return_value=False)
+            mock_file.read.return_value = fake_pdf_bytes
+            mock_open.return_value = mock_file
+
             # Act
-            result = converter.extract_text_from_word(fake_base64)
+            result = converter.convert_word_to_pdf(fake_docx_base64)
 
         # Assert
-        assert "Первый параграф" in result
-        assert "Второй параграф" in result
-        assert "Третий параграф" in result
-        # Пустые параграфы не должны быть включены
-        assert result.count("\n") == 2  # Только 2 перехода между непустыми параграфами
+        assert isinstance(result, str)
+        decoded = base64.b64decode(result)
+        assert decoded == fake_pdf_bytes
+        mock_run.assert_called_once()
+        
+        # Проверяем, что переданы env и UserInstallation
+        call_args = mock_run.call_args
+        assert "env" in call_args.kwargs
+        assert "HOME" in call_args.kwargs["env"]
+        assert "-env:UserInstallation=file:///tmp/fake_dir" in call_args.args[0]
 
-    def test_extract_text_from_word_empty_document(self, converter):
-        """Тест извлечения текста из пустого Word документа."""
-        # Arrange: мокаем DocxDocument без параграфов
-        mock_doc = MagicMock()
-        mock_doc.paragraphs = []
-
-        fake_bytes = b"PK\x03\x04" + b"empty docx"
-        fake_base64 = base64.b64encode(fake_bytes).decode("utf-8")
-
-        with patch(
-            "app.services.document_converter.DocxDocument",
-            return_value=mock_doc,
-        ):
-            # Act
-            result = converter.extract_text_from_word(fake_base64)
-
-        # Assert
-        assert result == ""
-
-    def test_extract_text_from_word_invalid_data_raises(self, converter):
-        """Тест: невалидные данные вызывают исключение."""
-        # Arrange: мокаем DocxDocument чтобы он падал
-        invalid_base64 = base64.b64encode(b"not a word document").decode("utf-8")
-
-        with patch(
-            "app.services.document_converter.DocxDocument",
-            side_effect=Exception("not a docx"),
-        ):
-            # Act & Assert
-            with pytest.raises(Exception):
-                converter.extract_text_from_word(invalid_base64)
-
-    def test_extract_text_from_word_with_data_uri_prefix(self, converter):
-        """Тест: base64 с префиксом data URI корректно обрабатывается."""
+    def test_convert_word_to_pdf_libreoffice_error(self, converter):
+        """Тест: ошибка LibreOffice при конвертации Word в PDF."""
         # Arrange
-        mock_para = MagicMock()
-        mock_para.text = "Текст параграфа"
-        mock_doc = MagicMock()
-        mock_doc.paragraphs = [mock_para]
+        fake_docx_bytes = b"PK\x03\x04" + b"fake docx"
+        fake_docx_base64 = base64.b64encode(fake_docx_bytes).decode("utf-8")
 
-        fake_bytes = b"PK\x03\x04" + b"fake docx"
-        fake_base64 = base64.b64encode(fake_bytes).decode("utf-8")
-        data_uri = f"data:application/vnd.openxmlformats-officedocument.wordprocessingml.document;base64,{fake_base64}"
-
-        with patch(
-            "app.services.document_converter.DocxDocument",
-            return_value=mock_doc,
-        ):
-            # Act
-            result = converter.extract_text_from_word(data_uri)
-
-        # Assert
-        assert result == "Текст параграфа"
-
-
-class TestDocumentConverterExtractTextFromPdfWithText:
-    """Тесты для метода extract_text_from_pdf_with_text."""
-
-    @pytest.fixture
-    def converter(self):
-        """Создание экземпляра DocumentConverter."""
-        return DocumentConverter()
-
-    def test_extract_text_from_pdf_success(self, converter):
-        """Тест успешного извлечения текста из PDF."""
-        # Arrange: мокаем fitz.Document
-        with patch("app.services.document_converter.fitz.Document") as mock_fitz:
-            mock_page1 = MagicMock()
-            mock_page1.get_text.return_value = "Текст страницы 1"
-            mock_page2 = MagicMock()
-            mock_page2.get_text.return_value = "Текст страницы 2"
-
-            mock_doc = MagicMock()
-            mock_doc.__len__ = MagicMock(return_value=2)
-            mock_doc.__getitem__ = MagicMock(side_effect=[mock_page1, mock_page2])
-            mock_fitz.return_value = mock_doc
-
-            pdf_bytes = b"%PDF-1.4 content"
-            pdf_base64 = base64.b64encode(pdf_bytes).decode("utf-8")
-
-            # Act
-            result = converter.extract_text_from_pdf_with_text(pdf_base64)
-
-            # Assert
-            assert "Текст страницы 1" in result
-            assert "Текст страницы 2" in result
-            assert "\n" in result
-
-    def test_extract_text_from_pdf_empty_pages(self, converter):
-        """Тест извлечения текста из PDF с пустыми страницами."""
-        # Arrange
-        with patch("app.services.document_converter.fitz.Document") as mock_fitz:
-            mock_page = MagicMock()
-            mock_page.get_text.return_value = ""
-
-            mock_doc = MagicMock()
-            mock_doc.__len__ = MagicMock(return_value=1)
-            mock_doc.__getitem__ = MagicMock(return_value=mock_page)
-            mock_fitz.return_value = mock_doc
-
-            pdf_bytes = b"%PDF-1.4 empty"
-            pdf_base64 = base64.b64encode(pdf_bytes).decode("utf-8")
-
-            # Act
-            result = converter.extract_text_from_pdf_with_text(pdf_base64)
-
-            # Assert
-            assert result == ""
-
-    def test_extract_text_from_pdf_invalid_data_raises(self, converter):
-        """Тест: невалидные данные вызывают исключение."""
-        # Arrange
-        with patch("app.services.document_converter.fitz.Document") as mock_fitz:
-            mock_fitz.side_effect = Exception("invalid pdf")
-
-            invalid_base64 = base64.b64encode(b"not a pdf").decode("utf-8")
+        with patch("app.services.document_converter.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=1,
+                stdout="",
+                stderr="LibreOffice failed",
+            )
 
             # Act & Assert
-            with pytest.raises(Exception):
-                converter.extract_text_from_pdf_with_text(invalid_base64)
+            with pytest.raises(RuntimeError, match="LibreOffice завершился"):
+                converter.convert_word_to_pdf(fake_docx_base64)
+
+    def test_convert_word_to_pdf_output_not_created(self, converter):
+        """Тест: PDF файл не создан после работы LibreOffice."""
+        # Arrange
+        fake_docx_bytes = b"PK\x03\x04" + b"fake docx"
+        fake_docx_base64 = base64.b64encode(fake_docx_bytes).decode("utf-8")
+
+        with patch("app.services.document_converter.subprocess.run") as mock_run, \
+             patch("app.services.document_converter.os.path.exists", return_value=False):
+
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout="",
+                stderr="",
+            )
+
+            # Act & Assert
+            with pytest.raises(RuntimeError, match="PDF файл не создан"):
+                converter.convert_word_to_pdf(fake_docx_base64)
 
 
 class TestDocumentConverterConvertPdfToImages:

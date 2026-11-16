@@ -1,15 +1,14 @@
 """
 Сервис прямой OCR-обработки документов (без очереди).
 
-Определяет тип документа и напрямую отправляет запросы на OCR
-в n8n webhook, минуя очередь задач (TaskRepository).
+Определяет тип документа, конвертирует его в изображения через unified pipeline
+и напрямую отправляет запросы на OCR в n8n webhook, минуя очередь задач.
 """
 
-import base64
 import logging
 from typing import Any
 
-from app.schemas.schemas import Document, DocumentRequest, OCRRequest
+from app.schemas.schemas import Document, OCRRequest
 from app.services.document_converter import DocumentConverter, DocumentType
 from app.services.request_service import RequestService
 
@@ -34,110 +33,46 @@ class DirectOCRService:
         self._request_service = request_service
         self._document_converter = document_converter
 
-    async def process_image(self, document: Document) -> dict[str, Any]:
+    async def process(
+        self, document: Document
+    ) -> dict[str, Any]:
         """
-        Прямая OCR-обработка изображения (без очереди).
+        Универсальная прямая OCR-обработка документа (без очереди).
 
         Логика:
-        1. Проверяет что документ является изображением
-        2. Конвертирует изображение в base64
-        3. Формирует OCRRequest
-        4. Напрямую отправляет запрос в n8n webhook
-
-        Args:
-            document: Документ (изображение) для обработки
-
-        Returns:
-            dict[str, Any]: Результат OCR-обработки от n8n
-
-        Raises:
-            ValueError: Если документ не является изображением
-            httpx.HTTPError: При ошибке HTTP-запроса к n8n
-        """
-        try:
-            document_id = document.document_id
-            logger.info(
-                f"Начало прямой OCR-обработки изображения: id={document_id}"
-            )
-
-            # Проверяем тип документа
-            doc_type = self._document_converter.detect_document_type(
-                document.document_base64
-            )
-            if doc_type != DocumentType.IMAGE:
-                raise ValueError(
-                    f"Ожидалось изображение, получен тип: {doc_type}"
-                )
-
-            # Конвертируем в base64
-            image_bytes = base64.b64decode(document.document_base64)
-            image_base64 = self._document_converter.convert_image_to_base64(
-                image_bytes
-            )
-
-            # Формируем OCR-запрос
-            ocr_request = OCRRequest(
-                document_id=document_id,
-                base64_document=[image_base64],
-                document_type=document.document_type,
-            )
-
-            # Прямая отправка на OCR
-            result = await self._request_service.ocr_request(ocr_request)
-
-            logger.info(
-                f"Изображение успешно обработано через прямой OCR: "
-                f"id={document_id}"
-            )
-            return result
-
-        except ValueError:
-            raise
-        except Exception as e:
-            logger.error(
-                f"Ошибка прямой OCR-обработки изображения "
-                f"{document.document_id}: {e}"
-            )
-            raise
-
-    async def process_pdf_scan(self, document: Document) -> dict[str, Any]:
-        """
-        Прямая OCR-обработка PDF-скана (без очереди).
-
-        Логика:
-        1. Проверяет что документ является PDF-сканом
-        2. Конвертирует страницы PDF в изображения
+        1. Определяет тип документа
+        2. Конвертирует документ в изображения (unified pipeline):
+           - Word → PDF (LibreOffice) → изображения
+           - PDF → изображения
+           - Изображение → base64
         3. Формирует OCRRequest со всеми страницами
         4. Напрямую отправляет запрос в n8n webhook
 
         Args:
-            document: Документ (PDF-скан) для обработки
+            document: Документ для обработки
 
         Returns:
             dict[str, Any]: Результат OCR-обработки от n8n
 
         Raises:
-            ValueError: Если документ не является PDF-сканом
             httpx.HTTPError: При ошибке HTTP-запроса к n8n
+            ValueError: Если тип документа не поддерживается
         """
         try:
             document_id = document.document_id
             logger.info(
-                f"Начало прямой OCR-обработки PDF-скана: id={document_id}"
+                f"Начало прямой OCR-обработки документа: id={document_id}"
             )
 
-            # Проверяем тип документа
+            # Определяем тип документа
             doc_type = self._document_converter.detect_document_type(
                 document.document_base64
             )
-            if doc_type != DocumentType.PDF_SCAN:
-                raise ValueError(
-                    f"Ожидался PDF-скан, получен тип: {doc_type}"
-                )
+            logger.info(f"Тип документа: {doc_type}")
 
-            # Конвертируем PDF в изображения
-            images_base64 = self._document_converter.convert_pdf_to_images(
-                document.document_base64
+            # Конвертируем документ в изображения по unified pipeline
+            images_base64 = self._convert_to_images(
+                doc_type, document.document_base64
             )
 
             # Формируем OCR-запрос
@@ -151,105 +86,49 @@ class DirectOCRService:
             result = await self._request_service.ocr_request(ocr_request)
 
             logger.info(
-                f"PDF-скан успешно обработан через прямой OCR: "
+                f"Документ успешно обработан через прямой OCR: "
                 f"id={document_id}, страниц={len(images_base64)}"
             )
             return result
 
-        except ValueError:
-            raise
         except Exception as e:
             logger.error(
-                f"Ошибка прямой OCR-обработки PDF-скана "
+                f"Ошибка прямой OCR-обработки документа "
                 f"{document.document_id}: {e}"
             )
             raise
 
-    async def process(
-        self, document: Document
-    ) -> dict[str, Any] | None:
+    def _convert_to_images(
+        self, doc_type: DocumentType, document_base64: str
+    ) -> list[str]:
         """
-        Универсальная прямая обработка документа (без очереди).
-
-        Автоматически определяет тип документа и маршрутизирует:
-        - IMAGE → прямая OCR-обработка
-        - PDF_SCAN → прямая OCR-обработка всех страниц
-        - WORD → извлечение текста и отправка в create_document
-        - PDF_TEXT → извлечение текста и отправка в create_document
+        Конвертирует документ в список изображений base64.
 
         Args:
-            document: Документ для обработки
+            doc_type: Тип документа
+            document_base64: Документ в формате base64
 
         Returns:
-            dict[str, Any] | None: Результат обработки или None для текстовых документов
+            list[str]: Список base64 изображений страниц
 
         Raises:
-            httpx.HTTPError: При ошибке HTTP-запроса к n8n
+            ValueError: Если тип документа не поддерживается
         """
-        try:
-            document_id = document.document_id
-            logger.info(
-                f"Начало прямой обработки документа: id={document_id}"
+        if doc_type == DocumentType.WORD:
+            logger.info("Конвертация Word документа в изображения")
+            pdf_base64 = self._document_converter.convert_word_to_pdf(
+                document_base64
+            )
+            return self._document_converter.convert_pdf_to_images(pdf_base64)
+
+        if doc_type == DocumentType.PDF:
+            logger.info("Конвертация PDF документа в изображения")
+            return self._document_converter.convert_pdf_to_images(
+                document_base64
             )
 
-            # Определяем тип документа
-            doc_type = self._document_converter.detect_document_type(
-                document.document_base64
-            )
-            logger.info(f"Тип документа: {doc_type}")
+        if doc_type == DocumentType.IMAGE:
+            logger.info("Подготовка изображения для OCR")
+            return [document_base64]
 
-            if doc_type == DocumentType.IMAGE:
-                # Изображение — прямая OCR-обработка
-                return await self.process_image(document)
-
-            elif doc_type == DocumentType.PDF_SCAN:
-                # PDF-скан — прямая OCR-обработка
-                return await self.process_pdf_scan(document)
-
-            elif doc_type == DocumentType.WORD:
-                # Word документ — извлекаем текст и отправляем
-                text = self._document_converter.extract_text_from_word(
-                    document.document_base64
-                )
-
-                document_request = DocumentRequest(
-                    document_id=document_id,
-                    raw_text=text,
-                    document_type=document.document_type,
-                )
-
-                await self._request_service.create_document(document_request)
-                logger.info(
-                    f"Word документ обработан напрямую: id={document_id}"
-                )
-                return None
-
-            elif doc_type == DocumentType.PDF_TEXT:
-                # PDF с текстом — извлекаем текст и отправляем
-                text = self._document_converter.extract_text_from_pdf_with_text(
-                    document.document_base64
-                )
-
-                document_request = DocumentRequest(
-                    document_id=document_id,
-                    raw_text=text,
-                    document_type=document.document_type,
-                )
-
-                await self._request_service.create_document(document_request)
-                logger.info(
-                    f"PDF с текстом обработан напрямую: id={document_id}"
-                )
-                return None
-
-            logger.info(
-                f"Документ успешно обработан напрямую: id={document_id}"
-            )
-            return None
-
-        except Exception as e:
-            logger.error(
-                f"Ошибка прямой обработки документа "
-                f"{document.document_id}: {e}"
-            )
-            raise
+        raise ValueError(f"Неподдерживаемый тип документа: {doc_type}")

@@ -5,6 +5,8 @@
 """
 
 import logging
+import warnings
+from collections.abc import Iterator
 
 from app.core.config import settings
 
@@ -36,18 +38,42 @@ class ChunkingService:
         Не режет слова — ищет последний пробел в пределах chunk_size.
         Пустые чанки пропускаются.
 
+        ВНИМАНИЕ: устаревший метод — загружает ВСЕ чанки в память.
+        Для потоковой обработки используйте split_iter().
+
         Args:
             text: Исходный текст для разбивки.
 
         Returns:
             list[str]: Список непустых чанков.
         """
-        if not text or not text.strip():
-            return []
+        warnings.warn(
+            "ChunkingService.split() is deprecated; use split_iter() for streaming processing",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return list(self.split_iter(text))
 
-        chunks: list[str] = []
+    def split_iter(self, text: str) -> Iterator[str]:
+        """
+        Потоково разбивает текст на чанки размером chunk_size с overlap chunk_overlap.
+
+        Отдаёт чанки по одному (генератор), не сохраняя все чанки в памяти.
+        Не режет слова — использует ту же логику поиска границы, что и split().
+        Пустые чанки пропускаются.
+
+        Args:
+            text: Исходный текст для разбивки.
+
+        Yields:
+            str: Очередной непустой чанк.
+        """
+        if not text or not text.strip():
+            return
+
         start = 0
         text_len = len(text)
+        produced = 0
 
         while start < text_len:
             end = start + self._chunk_size
@@ -63,16 +89,24 @@ class ChunkingService:
 
             stripped = chunk.strip()
             if stripped:
-                chunks.append(stripped)
+                produced += 1
+                yield stripped
 
             # Сдвигаемся с учётом overlap
-            start = end - self._chunk_overlap
-            if start <= (end - self._chunk_size):
-                # Защита от бесконечного цикла при overlap >= chunk_size
+            new_start = end - self._chunk_overlap
+            if new_start <= start:
+                # Overlap слишком большой или мы нашли границу слишком рано
+                # Просто двигаемся на end, чтобы избежать бесконечного цикла
                 start = end
+            else:
+                start = new_start
 
-        logger.info("Разбито на %d чанков (chunk_size=%d, overlap=%d)", len(chunks), self._chunk_size, self._chunk_overlap)
-        return chunks
+        logger.info(
+            "Разбито на %d чанков (chunk_size=%d, overlap=%d)",
+            produced,
+            self._chunk_size,
+            self._chunk_overlap,
+        )
 
     @staticmethod
     def _find_split_position(text: str, start: int, end: int) -> int:

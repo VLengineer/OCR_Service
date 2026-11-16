@@ -29,16 +29,25 @@ async def get_session() -> AsyncGenerator[AsyncSession, None]:
     """
     Dependency для FastAPI.
     Возвращает сессию БД для использования в эндпоинтах.
+
+    Контекстный менеджер async_session() сам закрывает сессию
+    и возвращает соединение в пул, поэтому отдельный close() не нужен:
+    двойное закрытие может маскировать утечку соединений.
     """
     async with async_session() as session:
         try:
             yield session
             await session.commit()
-        except Exception:
+            logger.debug("Сессия БД: транзакция зафиксирована")
+        except Exception as exc:
+            # Откатываем транзакцию, чтобы соединение не осталось
+            # в «грязном» состоянии и не удерживало ресурсы пула
             await session.rollback()
+            logger.error(
+                "Сессия БД: ошибка, транзакция откачена: %s",
+                type(exc).__name__,
+            )
             raise
-        finally:
-            await session.close()
 
 async def init_db():
     """

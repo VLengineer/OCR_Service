@@ -34,8 +34,19 @@ async def convert_document(
     service: DocumentConvertService = Depends(get_document_convert_service),
     current_user: dict = Depends(get_current_user),
 ) -> DocumentConvertResponse:
+    # Диагностическое логирование размера входного пейлоада.
+    # Логируем только длину base64-строки, без содержимого и PII.
+    logger.info(
+        "Конвертация документа запрошена: base64_size=%d B",
+        len(request.document_base64),
+    )
     try:
         result = await service.convert_document(request.document_base64)
+        logger.info(
+            "Конвертация документа завершена: document_type=%s, pages=%d",
+            result.document_type,
+            len(result.document_sheets),
+        )
         return result
     except ValueError as e:
         logger.warning(f"Невалидный документ для конвертации: {e}")

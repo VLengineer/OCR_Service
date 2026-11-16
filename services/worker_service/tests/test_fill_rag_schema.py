@@ -268,14 +268,14 @@ class TestFillRagRequestFromMetadata:
         assert request.subject is None
         assert request.description is None
 
-    def test_create_from_metadata_with_extra_fields_ignored(self):
-        """Лишние поля в metadata не вызывают ошибку (Pydantic по умолчанию игнорирует)."""
+    def test_create_from_metadata_with_extra_fields_preserved(self):
+        """Лишние поля в metadata сохраняются (extra='allow') и попадают в сериализацию."""
         metadata = {
             "url": "https://example.com/doc/1",
             "__id": "rec-001",
             "__name": "Test Doc",
             "__createdAt": "2025-01-01T00:00:00Z",
-            "extra_field": "should be ignored",
+            "extra_field": "should be preserved",
             "another_extra": 42,
         }
 
@@ -283,6 +283,15 @@ class TestFillRagRequestFromMetadata:
 
         assert request.url == "https://example.com/doc/1"
         assert request.id == "rec-001"
+
+        # Extra-поля доступны через model_extra
+        assert request.model_extra["extra_field"] == "should be preserved"
+        assert request.model_extra["another_extra"] == 42
+
+        # Extra-поля попадают в сериализацию
+        dumped = request.model_dump(mode="json", by_alias=True)
+        assert dumped["extra_field"] == "should be preserved"
+        assert dumped["another_extra"] == 42
 
     def test_create_from_metadata_missing_required_raises(self):
         """Неполный metadata dict → ValidationError."""
@@ -342,3 +351,63 @@ class TestFillRagRequestFromMetadata:
 
         assert dumped["counterparty"] == ["0197b0fe-9a79-702b-a5af-934d57a45c95"]
         assert dumped["decisionMaker"] == ["05e8eeb1-ab3a-4425-acad-216e6cb1a263"]
+
+
+class TestFillRagRequestExtraFieldsPassthrough:
+    """Поля __file и outgoingCorrespondence должны проходить в n8n-пейлоад."""
+
+    def test_dunder_file_field_preserved(self):
+        """Поле __file из metadata сохраняется и сериализуется."""
+        metadata = {
+            "url": "https://example.com/doc/1",
+            "__id": "rec-001",
+            "__name": "Test Doc",
+            "__createdAt": "2025-01-01T00:00:00Z",
+            "__file": {"id": "file-uuid", "name": "document.pdf"},
+        }
+
+        request = FillRagRequest(**metadata)
+
+        assert request.model_extra["__file"] == {"id": "file-uuid", "name": "document.pdf"}
+
+        dumped = request.model_dump(mode="json", by_alias=True)
+        assert dumped["__file"] == {"id": "file-uuid", "name": "document.pdf"}
+
+    def test_outgoing_correspondence_field_preserved(self):
+        """Поле outgoingCorrespondence из metadata сохраняется и сериализуется."""
+        metadata = {
+            "url": "https://example.com/doc/1",
+            "__id": "rec-001",
+            "__name": "Test Doc",
+            "__createdAt": "2025-01-01T00:00:00Z",
+            "outgoingCorrespondence": [{"number": "123", "date": "2025-01-01"}],
+        }
+
+        request = FillRagRequest(**metadata)
+
+        assert request.model_extra["outgoingCorrespondence"] == [
+            {"number": "123", "date": "2025-01-01"}
+        ]
+
+        dumped = request.model_dump(mode="json", by_alias=True)
+        assert dumped["outgoingCorrespondence"] == [{"number": "123", "date": "2025-01-01"}]
+
+    def test_all_extra_fields_in_serialized_payload(self):
+        """Все extra-поля из metadata попадают в финальный payload для n8n."""
+        metadata = {
+            "url": "https://example.com/doc/1",
+            "__id": "rec-001",
+            "__name": "Test Doc",
+            "__createdAt": "2025-01-01T00:00:00Z",
+            "__file": {"id": "file-uuid"},
+            "outgoingCorrespondence": [{"number": "123"}],
+            "customField": "value",
+        }
+
+        request = FillRagRequest(**metadata)
+        dumped = request.model_dump(mode="json", by_alias=True)
+
+        # Все extra-поля присутствуют в payload
+        assert dumped["__file"] == {"id": "file-uuid"}
+        assert dumped["outgoingCorrespondence"] == [{"number": "123"}]
+        assert dumped["customField"] == "value"

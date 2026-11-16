@@ -153,6 +153,41 @@ async def process_task(
         )
 
 
+@router.post(
+    "/{task_id}/complete",
+    response_model=CallbackResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Завершить задачу (callback от n8n)",
+    description=(
+        "Обновляет состояние задачи на completed. "
+        "Используется как callback от n8n после завершения OCR обработки. "
+        "Не требует JWT-авторизации."
+    ),
+)
+async def complete_task(
+    task_id: UUID,
+    task_repository: TaskRepository = Depends(get_task_repository),
+) -> CallbackResponse:
+    # Получаем задачу
+    task = await task_repository.get_task_by_id(task_id)
+    if task is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Task {task_id} not found",
+        )
+
+    # Обновляем состояние на completed
+    updated_task = await task_repository.update_task_state(task_id, State.COMPLETED)
+
+    logger.info(f"Task {task_id} marked as completed via callback")
+
+    return CallbackResponse(
+        task_id=updated_task.id,
+        state=updated_task.state,
+        updated_at=updated_task.updated_at,
+    )
+
+
 @router.delete(
     "/{task_id}",
     response_model=DeleteTaskResponse,

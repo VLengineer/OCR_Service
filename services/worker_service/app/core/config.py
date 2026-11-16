@@ -55,7 +55,7 @@ class Settings(BaseSettings):
         description="Путь вебхука для fill_rag задач",
     )
     n8n_request_timeout_sec: int = Field(
-        default=30,
+        default=120,
         description="Таймаут HTTP-запросов к n8n (секунды)",
     )
     n8n_token: str = Field(
@@ -86,13 +86,20 @@ class Settings(BaseSettings):
         default=3,
         description="Максимальное количество retry для задачи",
     )
-    worker_processing_timeout_sec: int = Field(
+    worker_secondary_retry_interval_sec: int = Field(
         default=300,
         description=(
-            "Таймаут (секунды) для задач в состоянии PROCESSING. "
-            "Если задача находится в PROCESSING дольше этого времени "
-            "(callback от n8n не пришёл), она считается зависшей и "
-            "возвращается в waiting для повторной обработки."
+            "Интервал (секунды) между вторичными повторными попытками. "
+            "После исчерпания первичных retries задача переходит в error "
+            "с next_retry_at = NOW() + этот интервал."
+        ),
+    )
+    worker_max_secondary_retries: int = Field(
+        default=3,
+        description=(
+            "Максимальное количество вторичных retry-циклов. "
+            "Общее максимальное количество попыток = "
+            "worker_max_retries * (1 + worker_max_secondary_retries)."
         ),
     )
 

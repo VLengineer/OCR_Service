@@ -1,289 +1,296 @@
 """
 Unit-тесты для DirectOCRService.
 
-Тестируются методы:
-- process_image: прямая OCR-обработка изображения
-- process_pdf_scan: прямая OCR-обработка PDF-скана
-- process: универсальная прямая обработка документа
+Тестируется метод:
+- process: универсальная прямая OCR-обработка документа через конвертацию в изображения
+
+Новая унифицированная логика:
+- WORD -> convert_word_to_pdf -> convert_pdf_to_images -> ocr_request
+- PDF  -> convert_pdf_to_images -> ocr_request
+- IMAGE -> [document_base64] -> ocr_request
 """
 
-import base64
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from app.schemas.schemas import Document, DocumentRequest, OCRRequest
+from app.schemas.schemas import Document, OCRRequest
 from app.services.direct_ocr_service import DirectOCRService
 from app.services.document_converter import DocumentType
 
-# Valid base64 string for tests that go through base64.b64decode
-VALID_IMAGE_B64 = base64.b64encode(b"fake_image_data").decode()
+
+@pytest.fixture
+def base_document():
+    """Базовый документ с заполненным document_type."""
+    return Document(
+        document_id="doc_id",
+        document_base64="base64_data",
+        document_type="incoming_doc",
+    )
 
 
-class TestDirectOCRServiceProcessImage:
-    """Тесты для метода process_image."""
+def _make_service(request_service=None, document_converter=None):
+    return DirectOCRService(
+        request_service=request_service or MagicMock(),
+        document_converter=document_converter or MagicMock(),
+    )
 
-    @pytest.fixture
-    def mock_request_service(self):
-        """Мок для RequestService."""
-        service = MagicMock()
-        service.ocr_request = AsyncMock()
-        return service
 
-    @pytest.fixture
-    def mock_document_converter(self):
-        """Мок для DocumentConverter."""
-        converter = MagicMock()
-        converter.detect_document_type = MagicMock()
-        converter.convert_image_to_base64 = MagicMock()
-        return converter
+class TestDirectOCRServiceInit:
+    """Тесты инициализации DirectOCRService."""
 
-    @pytest.fixture
-    def direct_ocr_service(self, mock_request_service, mock_document_converter):
-        """Создание экземпляра DirectOCRService."""
-        return DirectOCRService(
+    def test_init_stores_dependencies(self):
+        """Тест: конструктор сохраняет зависимости."""
+        mock_request_service = MagicMock()
+        mock_document_converter = MagicMock()
+
+        service = _make_service(
             request_service=mock_request_service,
             document_converter=mock_document_converter,
         )
 
-    @pytest.mark.asyncio
-    async def test_process_image_success(
-        self, direct_ocr_service, mock_request_service, mock_document_converter
-    ):
-        """Тест успешной прямой OCR-обработки изображения."""
-        # Arrange
-        document = Document(document_id="doc123", document_base64=VALID_IMAGE_B64)
-        mock_document_converter.detect_document_type.return_value = DocumentType.IMAGE
-        mock_document_converter.convert_image_to_base64.return_value = "converted_base64"
-        mock_request_service.ocr_request.return_value = {"result": "success"}
-
-        # Act
-        result = await direct_ocr_service.process_image(document)
-
-        # Assert
-        assert result == {"result": "success"}
-        mock_document_converter.detect_document_type.assert_called_once_with(VALID_IMAGE_B64)
-        mock_document_converter.convert_image_to_base64.assert_called_once()
-        mock_request_service.ocr_request.assert_called_once()
-        
-        # Проверяем, что создан правильный OCRRequest
-        call_args = mock_request_service.ocr_request.call_args
-        ocr_request = call_args[0][0]
-        assert isinstance(ocr_request, OCRRequest)
-        assert ocr_request.document_id == "doc123"
-        assert ocr_request.base64_document == ["converted_base64"]
-
-    @pytest.mark.asyncio
-    async def test_process_image_raises_error_when_not_image(
-        self, direct_ocr_service, mock_document_converter
-    ):
-        """Тест: вызывается ошибка, если документ не является изображением."""
-        # Arrange
-        document = Document(document_id="doc123", document_base64="base64data")
-        mock_document_converter.detect_document_type.return_value = DocumentType.PDF_SCAN
-
-        # Act & Assert
-        with pytest.raises(ValueError, match="Ожидалось изображение"):
-            await direct_ocr_service.process_image(document)
+        assert service._request_service is mock_request_service
+        assert service._document_converter is mock_document_converter
 
 
-class TestDirectOCRServiceProcessPdfScan:
-    """Тесты для метода process_pdf_scan."""
+class TestDirectOCRServiceProcessWord:
+    """Тесты process для Word документа."""
 
     @pytest.fixture
     def mock_request_service(self):
-        """Мок для RequestService."""
         service = MagicMock()
         service.ocr_request = AsyncMock()
         return service
 
     @pytest.fixture
     def mock_document_converter(self):
-        """Мок для DocumentConverter."""
         converter = MagicMock()
         converter.detect_document_type = MagicMock()
+        converter.convert_word_to_pdf = MagicMock()
         converter.convert_pdf_to_images = MagicMock()
         return converter
 
     @pytest.fixture
-    def direct_ocr_service(self, mock_request_service, mock_document_converter):
-        """Создание экземпляра DirectOCRService."""
-        return DirectOCRService(
+    def service(self, mock_request_service, mock_document_converter):
+        return _make_service(
             request_service=mock_request_service,
             document_converter=mock_document_converter,
         )
 
     @pytest.mark.asyncio
-    async def test_process_pdf_scan_success(
-        self, direct_ocr_service, mock_request_service, mock_document_converter
+    async def test_process_word_converts_to_images_and_calls_ocr(
+        self, service, mock_request_service, mock_document_converter
     ):
-        """Тест успешной прямой OCR-обработки PDF-скана."""
-        # Arrange
-        document = Document(document_id="doc456", document_base64="pdf_base64")
-        mock_document_converter.detect_document_type.return_value = DocumentType.PDF_SCAN
-        mock_document_converter.convert_pdf_to_images.return_value = [
-            "page1_base64",
-            "page2_base64",
-        ]
-        mock_request_service.ocr_request.return_value = {"result": "ocr_done"}
-
-        # Act
-        result = await direct_ocr_service.process_pdf_scan(document)
-
-        # Assert
-        assert result == {"result": "ocr_done"}
-        mock_document_converter.detect_document_type.assert_called_once_with("pdf_base64")
-        mock_document_converter.convert_pdf_to_images.assert_called_once_with("pdf_base64")
-        mock_request_service.ocr_request.assert_called_once()
-        
-        # Проверяем, что создан правильный OCRRequest
-        call_args = mock_request_service.ocr_request.call_args
-        ocr_request = call_args[0][0]
-        assert isinstance(ocr_request, OCRRequest)
-        assert ocr_request.document_id == "doc456"
-        assert ocr_request.base64_document == ["page1_base64", "page2_base64"]
-
-    @pytest.mark.asyncio
-    async def test_process_pdf_scan_raises_error_when_not_pdf_scan(
-        self, direct_ocr_service, mock_document_converter
-    ):
-        """Тест: вызывается ошибка, если документ не является PDF-сканом."""
-        # Arrange
-        document = Document(document_id="doc456", document_base64="pdf_base64")
-        mock_document_converter.detect_document_type.return_value = DocumentType.IMAGE
-
-        # Act & Assert
-        with pytest.raises(ValueError, match="Ожидался PDF-скан"):
-            await direct_ocr_service.process_pdf_scan(document)
-
-
-class TestDirectOCRServiceProcess:
-    """Тесты для метода process."""
-
-    @pytest.fixture
-    def mock_request_service(self):
-        """Мок для RequestService."""
-        service = MagicMock()
-        service.ocr_request = AsyncMock()
-        service.create_document = AsyncMock()
-        return service
-
-    @pytest.fixture
-    def mock_document_converter(self):
-        """Мок для DocumentConverter."""
-        converter = MagicMock()
-        converter.detect_document_type = MagicMock()
-        converter.convert_image_to_base64 = MagicMock()
-        converter.convert_pdf_to_images = MagicMock()
-        converter.extract_text_from_word = MagicMock()
-        converter.extract_text_from_pdf_with_text = MagicMock()
-        return converter
-
-    @pytest.fixture
-    def direct_ocr_service(self, mock_request_service, mock_document_converter):
-        """Создание экземпляра DirectOCRService."""
-        return DirectOCRService(
-            request_service=mock_request_service,
-            document_converter=mock_document_converter,
+        """Тест: Word -> PDF -> изображения -> OCR."""
+        document = Document(
+            document_id="doc_word",
+            document_base64="word_base64",
+            document_type="incoming_doc",
         )
-
-    @pytest.mark.asyncio
-    async def test_process_image_routes_to_process_image(
-        self, direct_ocr_service, mock_document_converter, mock_request_service
-    ):
-        """Тест: изображение маршрутизируется в process_image."""
-        # Arrange
-        document = Document(document_id="doc_img", document_base64=VALID_IMAGE_B64)
-        mock_document_converter.detect_document_type.return_value = DocumentType.IMAGE
-        mock_document_converter.convert_image_to_base64.return_value = "converted_img"
-        mock_request_service.ocr_request.return_value = {"status": "ok"}
-
-        # Act
-        result = await direct_ocr_service.process(document)
-
-        # Assert
-        assert result == {"status": "ok"}
-        mock_request_service.ocr_request.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_process_pdf_scan_routes_to_process_pdf_scan(
-        self, direct_ocr_service, mock_document_converter, mock_request_service
-    ):
-        """Тест: PDF-скан маршрутизируется в process_pdf_scan."""
-        # Arrange
-        document = Document(document_id="doc_pdf", document_base64="pdf_base64")
-        mock_document_converter.detect_document_type.return_value = DocumentType.PDF_SCAN
+        mock_document_converter.detect_document_type.return_value = DocumentType.WORD
+        mock_document_converter.convert_word_to_pdf.return_value = "pdf_base64"
         mock_document_converter.convert_pdf_to_images.return_value = ["page1", "page2"]
         mock_request_service.ocr_request.return_value = {"status": "done"}
 
-        # Act
-        result = await direct_ocr_service.process(document)
+        result = await service.process(document)
 
-        # Assert
         assert result == {"status": "done"}
-        mock_request_service.ocr_request.assert_called_once()
+        mock_document_converter.detect_document_type.assert_called_once_with("word_base64")
+        mock_document_converter.convert_word_to_pdf.assert_called_once_with("word_base64")
+        mock_document_converter.convert_pdf_to_images.assert_called_once_with("pdf_base64")
+        mock_request_service.ocr_request.assert_awaited_once()
 
-    @pytest.mark.asyncio
-    async def test_process_word_extracts_text_and_creates_document(
-        self, direct_ocr_service, mock_document_converter, mock_request_service
-    ):
-        """Тест: Word документ извлекает текст и вызывает create_document."""
-        # Arrange
-        document = Document(document_id="doc_word", document_base64="word_base64")
-        mock_document_converter.detect_document_type.return_value = DocumentType.WORD
-        mock_document_converter.extract_text_from_word.return_value = "Извлечённый текст"
+        ocr_request = mock_request_service.ocr_request.call_args[0][0]
+        assert isinstance(ocr_request, OCRRequest)
+        assert ocr_request.document_id == "doc_word"
+        assert ocr_request.base64_document == ["page1", "page2"]
+        assert ocr_request.document_type == "incoming_doc"
 
-        # Act
-        result = await direct_ocr_service.process(document)
 
-        # Assert
-        assert result is None
-        mock_document_converter.extract_text_from_word.assert_called_once_with("word_base64")
-        mock_request_service.create_document.assert_called_once()
-        
-        # Проверяем, что создан правильный DocumentRequest
-        call_args = mock_request_service.create_document.call_args
-        doc_request = call_args[0][0]
-        assert isinstance(doc_request, DocumentRequest)
-        assert doc_request.document_id == "doc_word"
-        assert doc_request.raw_text == "Извлечённый текст"
+class TestDirectOCRServiceProcessPdf:
+    """Тесты process для PDF."""
 
-    @pytest.mark.asyncio
-    async def test_process_pdf_text_extracts_text_and_creates_document(
-        self, direct_ocr_service, mock_document_converter, mock_request_service
-    ):
-        """Тест: PDF с текстом извлекает текст и вызывает create_document."""
-        # Arrange
-        document = Document(document_id="doc_pdftext", document_base64="pdftext_base64")
-        mock_document_converter.detect_document_type.return_value = DocumentType.PDF_TEXT
-        mock_document_converter.extract_text_from_pdf_with_text.return_value = "PDF текст"
+    @pytest.fixture
+    def mock_request_service(self):
+        service = MagicMock()
+        service.ocr_request = AsyncMock()
+        return service
 
-        # Act
-        result = await direct_ocr_service.process(document)
+    @pytest.fixture
+    def mock_document_converter(self):
+        converter = MagicMock()
+        converter.detect_document_type = MagicMock()
+        converter.convert_pdf_to_images = MagicMock()
+        return converter
 
-        # Assert
-        assert result is None
-        mock_document_converter.extract_text_from_pdf_with_text.assert_called_once_with(
-            "pdftext_base64"
+    @pytest.fixture
+    def service(self, mock_request_service, mock_document_converter):
+        return _make_service(
+            request_service=mock_request_service,
+            document_converter=mock_document_converter,
         )
-        mock_request_service.create_document.assert_called_once()
-        
-        # Проверяем, что создан правильный DocumentRequest
-        call_args = mock_request_service.create_document.call_args
-        doc_request = call_args[0][0]
-        assert isinstance(doc_request, DocumentRequest)
-        assert doc_request.document_id == "doc_pdftext"
-        assert doc_request.raw_text == "PDF текст"
 
     @pytest.mark.asyncio
-    async def test_process_handles_exception_and_raises(
-        self, direct_ocr_service, mock_document_converter
+    async def test_process_pdf_converts_to_images_and_calls_ocr(
+        self, service, mock_request_service, mock_document_converter
     ):
-        """Тест: исключение в процессе обработки логируется и пробрасывается."""
-        # Arrange
-        document = Document(document_id="doc_err", document_base64="err_base64")
-        mock_document_converter.detect_document_type.side_effect = Exception("Test error")
+        """Тест: PDF -> изображения -> OCR."""
+        document = Document(
+            document_id="doc_pdf",
+            document_base64="pdf_base64",
+            document_type="incoming_doc",
+        )
+        mock_document_converter.detect_document_type.return_value = DocumentType.PDF
+        mock_document_converter.convert_pdf_to_images.return_value = [
+            "page1_base64", "page2_base64"
+        ]
+        mock_request_service.ocr_request.return_value = {"result": "ocr_done"}
 
-        # Act & Assert
-        with pytest.raises(Exception, match="Test error"):
-            await direct_ocr_service.process(document)
+        result = await service.process(document)
+
+        assert result == {"result": "ocr_done"}
+        mock_document_converter.detect_document_type.assert_called_once_with("pdf_base64")
+        mock_document_converter.convert_pdf_to_images.assert_called_once_with("pdf_base64")
+        mock_request_service.ocr_request.assert_awaited_once()
+
+        ocr_request = mock_request_service.ocr_request.call_args[0][0]
+        assert isinstance(ocr_request, OCRRequest)
+        assert ocr_request.document_id == "doc_pdf"
+        assert ocr_request.base64_document == ["page1_base64", "page2_base64"]
+        assert ocr_request.document_type == "incoming_doc"
+
+
+class TestDirectOCRServiceProcessImage:
+    """Тесты process для изображения."""
+
+    @pytest.fixture
+    def mock_request_service(self):
+        service = MagicMock()
+        service.ocr_request = AsyncMock()
+        return service
+
+    @pytest.fixture
+    def mock_document_converter(self):
+        converter = MagicMock()
+        converter.detect_document_type = MagicMock()
+        return converter
+
+    @pytest.fixture
+    def service(self, mock_request_service, mock_document_converter):
+        return _make_service(
+            request_service=mock_request_service,
+            document_converter=mock_document_converter,
+        )
+
+    @pytest.mark.asyncio
+    async def test_process_image_calls_ocr_request_with_single_page(
+        self, service, mock_request_service, mock_document_converter
+    ):
+        """Тест: изображение передаётся в OCR как одностраничный документ."""
+        document = Document(
+            document_id="doc_img",
+            document_base64="img_base64",
+            document_type="incoming_doc",
+        )
+        mock_document_converter.detect_document_type.return_value = DocumentType.IMAGE
+        mock_request_service.ocr_request.return_value = {"status": "ok"}
+
+        result = await service.process(document)
+
+        assert result == {"status": "ok"}
+        mock_document_converter.detect_document_type.assert_called_once_with("img_base64")
+        mock_request_service.ocr_request.assert_awaited_once()
+
+        ocr_request = mock_request_service.ocr_request.call_args[0][0]
+        assert isinstance(ocr_request, OCRRequest)
+        assert ocr_request.document_id == "doc_img"
+        assert ocr_request.base64_document == ["img_base64"]
+        assert ocr_request.document_type == "incoming_doc"
+
+
+class TestDirectOCRServiceProcessErrors:
+    """Тесты обработки ошибок в process."""
+
+    @pytest.fixture
+    def mock_request_service(self):
+        service = MagicMock()
+        service.ocr_request = AsyncMock()
+        return service
+
+    @pytest.fixture
+    def mock_document_converter(self):
+        converter = MagicMock()
+        converter.detect_document_type = MagicMock()
+        converter.convert_word_to_pdf = MagicMock()
+        converter.convert_pdf_to_images = MagicMock()
+        return converter
+
+    @pytest.fixture
+    def service(self, mock_request_service, mock_document_converter):
+        return _make_service(
+            request_service=mock_request_service,
+            document_converter=mock_document_converter,
+        )
+
+    @pytest.mark.asyncio
+    async def test_process_raises_when_detect_fails(
+        self, service, mock_document_converter
+    ):
+        """Тест: исключение при определении типа пробрасывается."""
+        document = Document(
+            document_id="doc_err",
+            document_base64="bad_data",
+            document_type="incoming_doc",
+        )
+        mock_document_converter.detect_document_type.side_effect = RuntimeError("parse error")
+
+        with pytest.raises(RuntimeError, match="parse error"):
+            await service.process(document)
+
+    @pytest.mark.asyncio
+    async def test_process_raises_when_word_conversion_fails(
+        self, service, mock_document_converter
+    ):
+        """Тест: исключение при конвертации Word пробрасывается."""
+        document = Document(
+            document_id="doc_err",
+            document_base64="word_base64",
+            document_type="incoming_doc",
+        )
+        mock_document_converter.detect_document_type.return_value = DocumentType.WORD
+        mock_document_converter.convert_word_to_pdf.side_effect = RuntimeError("convert error")
+
+        with pytest.raises(RuntimeError, match="convert error"):
+            await service.process(document)
+
+    @pytest.mark.asyncio
+    async def test_process_raises_when_pdf_conversion_fails(
+        self, service, mock_document_converter
+    ):
+        """Тест: исключение при конвертации PDF в изображения пробрасывается."""
+        document = Document(
+            document_id="doc_err",
+            document_base64="pdf_base64",
+            document_type="incoming_doc",
+        )
+        mock_document_converter.detect_document_type.return_value = DocumentType.PDF
+        mock_document_converter.convert_pdf_to_images.side_effect = RuntimeError("convert error")
+
+        with pytest.raises(RuntimeError, match="convert error"):
+            await service.process(document)
+
+    @pytest.mark.asyncio
+    async def test_process_raises_when_ocr_request_fails(
+        self, service, mock_request_service, mock_document_converter
+    ):
+        """Тест: исключение при OCR-запросе пробрасывается."""
+        document = Document(
+            document_id="doc_err",
+            document_base64="img_base64",
+            document_type="incoming_doc",
+        )
+        mock_document_converter.detect_document_type.return_value = DocumentType.IMAGE
+        mock_request_service.ocr_request.side_effect = RuntimeError("ocr error")
+
+        with pytest.raises(RuntimeError, match="ocr error"):
+            await service.process(document)

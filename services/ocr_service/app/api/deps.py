@@ -51,8 +51,17 @@ async def get_task_repository(
 
 
 async def get_request_service() -> RequestService:
-    """Создаёт сервис HTTP-запросов к n8n."""
-    return RequestService()
+    """Создаёт сервис HTTP-запросов к n8n.
+
+    Yield позволяет корректно закрыть HTTP-клиент после запроса.
+    Без этого lazy-синглтон httpx.AsyncClient не освобождается
+    и накапливается в пуле соединений.
+    """
+    service = RequestService()
+    try:
+        yield service
+    finally:
+        await service.close()
 
 
 async def get_document_converter() -> DocumentConverter:
@@ -107,8 +116,10 @@ async def get_chunking_service() -> ChunkingService:
 
 async def get_embedding_service() -> EmbeddingService:
     """Создаёт сервис получения эмбеддингов через Ollama.
-    
-    Yield позволяет корректно закрыть HTTP-клиент после использования.
+
+    Yield позволяет корректно закрыть HTTP-клиент после запроса.
+    Без этого lazy-синглтон httpx.AsyncClient не освобождается
+    и накапливается в пуле соединений.
     """
     service = EmbeddingService()
     try:
@@ -129,12 +140,20 @@ async def get_document_vector_service(
     embedding_service: EmbeddingService = Depends(get_embedding_service),
     repository: DocumentVectorRepository = Depends(get_document_vector_repository),
 ) -> DocumentVectorService:
-    """Создаёт сервис векторизации документов."""
-    return DocumentVectorService(
+    """Создаёт сервис векторизации документов.
+    
+    Yield позволяет корректно освободить ресурсы после запроса.
+    """
+    service = DocumentVectorService(
         chunking_service=chunking_service,
         embedding_service=embedding_service,
         repository=repository,
     )
+    try:
+        yield service
+    finally:
+        # Освобождаем HTTP-клиент embedding_service
+        await embedding_service.close()
 
 
 async def get_document_convert_service(

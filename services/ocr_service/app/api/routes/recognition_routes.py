@@ -34,8 +34,18 @@ async def recognize_document(
     service: RecognitionProxyService = Depends(get_recognition_proxy_service),
     current_user: dict = Depends(get_current_user),
 ) -> RecognitionResponse:
+    # Диагностическое логирование размера входного пейлоада.
+    # Логируем только длину base64-строки, без содержимого и PII.
+    logger.info(
+        "Запрос распознавания принят: base64_size=%d B",
+        len(request.document_base64),
+    )
     try:
         extracted_text = await service.recognize(request)
+        logger.info(
+            "Распознавание документа завершено: text_length=%d",
+            len(extracted_text),
+        )
         return RecognitionResponse(extracted_text=extracted_text)
 
     except ValueError as e:

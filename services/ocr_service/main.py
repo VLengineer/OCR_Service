@@ -19,6 +19,7 @@ from app.core.config import settings
 from app.repositories.database import init_db, close_db
 from app.api.routes import auth_routes, document_routes, task_routes, direct_ocr_routes, recognition_routes, vector_routes, convert_routes, elma_routes
 from app.middleware.request_logger import RequestLoggingMiddleware
+from app.middleware.memory_monitor import MemoryMonitorMiddleware
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,13 @@ async def lifespan(app: FastAPI):
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
     logger.info("Starting OCR Service...")
+    
+    # Логируем настройки Ollama для диагностики
+    logger.info("Ollama settings:")
+    logger.info("  ollama_host: %s", settings.ollama_host)
+    logger.info("  ollama_port: %s", settings.ollama_port)
+    logger.info("  ollama_embedding_model: %s", settings.ollama_embedding_model)
+    
     await init_db()
     logger.info("Database initialized")
     yield
@@ -60,6 +68,9 @@ app.add_middleware(
 
 # Request logging middleware
 app.add_middleware(RequestLoggingMiddleware)
+
+# Memory monitoring middleware
+app.add_middleware(MemoryMonitorMiddleware)
 
 # Подключаем роутеры
 app.include_router(auth_routes.router)

@@ -73,6 +73,12 @@ class TaskModel(Base):
         comment="Дополнительные данные задачи (для fill_rag)",
     )
 
+    next_retry_at = Column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="Время следующей повторной попытки для задач в error",
+    )
+
     created_at = Column(
         DateTime(timezone=True),
         nullable=False,

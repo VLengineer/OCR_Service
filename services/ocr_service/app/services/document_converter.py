@@ -7,6 +7,11 @@
 import base64
 import io
 import logging
+import os
+import shutil
+import subprocess
+import tempfile
+from enum import Enum
 from typing import List
 
 import fitz  # PyMuPDF
@@ -16,11 +21,11 @@ from PIL import Image
 logger = logging.getLogger(__name__)
 
 
-class DocumentType:
-    """Константы типов документов."""
+class DocumentType(str, Enum):
+    """Типы документов."""
+
     WORD = "word"
-    PDF_TEXT = "pdf_text"
-    PDF_SCAN = "pdf_scan"
+    PDF = "pdf"
     IMAGE = "image"
 
 
@@ -48,10 +53,10 @@ class DocumentConverter:
             if comma_index != -1:
                 base64_data = base64_data[comma_index + 1:]
                 logger.debug("Удален префикс data URI из base64")
-        
+
         return base64_data
 
-    def detect_document_type(self, base64_data: str) -> str:
+    def detect_document_type(self, base64_data: str) -> DocumentType:
         """
         Определяет тип документа по содержимому.
 
@@ -59,7 +64,7 @@ class DocumentConverter:
             base64_data: Base64 закодированные данные документа
 
         Returns:
-            str: Тип документа (word, pdf_text, pdf_scan, image)
+            DocumentType: Тип документа (word, pdf, image)
         """
         try:
             # Очищаем base64 от возможных префиксов
@@ -73,113 +78,146 @@ class DocumentConverter:
             if file_bytes[:4] == b"PK\x03\x04":
                 try:
                     doc = DocxDocument(io.BytesIO(file_bytes))
-                    if doc.paragraphs:
-                        logger.debug("Определён тип: Word документ")
+                    if doc.paragraphs is not None:
+                        logger.info(
+                            "Определён тип: Word документ "
+                            "(DOCX, распознан python-docx)"
+                        )
                         return DocumentType.WORD
-                except Exception:
-                    pass
+                except Exception as docx_error:
+                    logger.warning(
+                        f"DOCX не удалось распарсить python-docx: {docx_error}. "
+                        f"Всё равно определяем как Word по сигнатуре ZIP"
+                    )
+                    return DocumentType.WORD
+
+            # Проверка на старый Word документ (.doc) - OLE2 сигнатура
+            ole2_signature = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
+            if len(file_bytes) >= len(ole2_signature) and file_bytes[:len(ole2_signature)] == ole2_signature:
+                logger.info(
+                    "Определён тип: Word документ (OLE2, .doc)"
+                )
+                return DocumentType.WORD
 
             # Проверка на PDF
             if file_bytes[:4] == b"%PDF":
-                pdf_doc = fitz.Document(stream=file_bytes, filetype="pdf")
-                has_text = False
-
-                for page_num in range(len(pdf_doc)):
-                    page = pdf_doc[page_num]
-                    text = page.get_text().strip()  # type: ignore[attr-defined]
-                    if text:
-                        has_text = True
-                        break
-
-                pdf_doc.close()
-
-                if has_text:
-                    logger.debug("Определён тип: PDF с текстом")
-                    return DocumentType.PDF_TEXT
-                else:
-                    logger.debug("Определён тип: PDF-скан")
-                    return DocumentType.PDF_SCAN
+                logger.info("Определён тип: PDF документ")
+                return DocumentType.PDF
 
             # Проверка на изображение
+            # Image.open не читает данные сразу, verify() проверяет сигнатуру.
+            # Без close() файловый дескриптор остаётся открытым.
             try:
-                img = Image.open(io.BytesIO(file_bytes))
-                img.verify()
-                logger.debug("Определён тип: Изображение")
+                with Image.open(io.BytesIO(file_bytes)) as img:
+                    img.verify()
+                logger.info("Определён тип: Изображение")
                 return DocumentType.IMAGE
-            except Exception:
-                pass
+            except Exception as image_error:
+                logger.debug(f"Не удалось распознать изображение: {image_error}")
 
             logger.warning(
                 "Не удалось определить тип документа, "
-                "по умолчанию PDF-скан"
+                "по умолчанию PDF"
             )
-            return DocumentType.PDF_SCAN
+            return DocumentType.PDF
 
         except Exception as e:
             logger.error(f"Ошибка определения типа документа: {e}")
-            return DocumentType.PDF_SCAN
+            return DocumentType.PDF
 
-    def extract_text_from_word(self, base64_data: str) -> str:
+    def convert_word_to_pdf(self, base64_data: str) -> str:
         """
-        Извлекает текст из Word документа.
+        Конвертирует Word документ в PDF через LibreOffice.
 
         Args:
             base64_data: Base64 закодированный Word документ
 
         Returns:
-            str: Извлечённый текст
+            str: Base64 закодированный PDF документ
+
+        Raises:
+            RuntimeError: Если конвертация не удалась.
         """
+        cleaned_base64 = self._clean_base64(base64_data)
+        file_bytes = base64.b64decode(cleaned_base64)
+
+        temp_dir = tempfile.mkdtemp()
+        lo_profile_dir = tempfile.mkdtemp(prefix="lo_profile_")
+        temp_docx_path = os.path.join(temp_dir, "document.docx")
+
         try:
-            # Очищаем base64 от возможных префиксов
-            cleaned_base64 = self._clean_base64(base64_data)
-            file_bytes = base64.b64decode(cleaned_base64)
-            doc = DocxDocument(io.BytesIO(file_bytes))
+            with open(temp_docx_path, "wb") as temp_docx_file:
+                temp_docx_file.write(file_bytes)
 
-            text_parts = []
-            for paragraph in doc.paragraphs:
-                if paragraph.text.strip():
-                    text_parts.append(paragraph.text)
+            logger.info("Конвертация Word документа в PDF через LibreOffice")
 
-            full_text = "\n".join(text_parts)
-            logger.info(f"Извлечён текст из Word: {len(full_text)} символов")
-            return full_text
+            # Задаём временную HOME и профиль LibreOffice,
+            # чтобы избежать ошибок прав в контейнере
+            env = {**os.environ, "HOME": lo_profile_dir}
 
-        except Exception as e:
-            logger.error(f"Ошибка извлечения текста из Word: {e}")
-            raise
+            result = subprocess.run(
+                [
+                    "libreoffice",
+                    "-env:UserInstallation=file:///" + lo_profile_dir.lstrip("/"),
+                    "--headless",
+                    "--convert-to",
+                    "pdf",
+                    "--outdir",
+                    temp_dir,
+                    temp_docx_path,
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+                env=env,
+            )
 
-    def extract_text_from_pdf_with_text(self, base64_data: str) -> str:
-        """
-        Извлекает текст из PDF с текстовым слоем.
+            if result.returncode != 0:
+                error_message = (
+                    f"LibreOffice завершился с кодом {result.returncode}. "
+                    f"stdout: {result.stdout}, stderr: {result.stderr}"
+                )
+                logger.error(error_message)
+                raise RuntimeError(error_message)
 
-        Args:
-            base64_data: Base64 закодированный PDF документ
+            pdf_path = os.path.join(temp_dir, "document.pdf")
+            if not os.path.exists(pdf_path):
+                error_message = (
+                    f"PDF файл не создан. stdout: {result.stdout}, "
+                    f"stderr: {result.stderr}"
+                )
+                logger.error(error_message)
+                raise RuntimeError(error_message)
 
-        Returns:
-            str: Извлечённый текст
-        """
-        try:
-            # Очищаем base64 от возможных префиксов
-            cleaned_base64 = self._clean_base64(base64_data)
-            file_bytes = base64.b64decode(cleaned_base64)
-            pdf_doc = fitz.Document(stream=file_bytes, filetype="pdf")
+            with open(pdf_path, "rb") as pdf_file:
+                pdf_bytes = pdf_file.read()
 
-            text_parts = []
-            for page_num in range(len(pdf_doc)):
-                page = pdf_doc[page_num]
-                text = page.get_text()  # type: ignore[attr-defined]
-                if text.strip():
-                    text_parts.append(text)
+            logger.info(
+                f"Word документ конвертирован в PDF: {len(pdf_bytes)} байт"
+            )
+            return base64.b64encode(pdf_bytes).decode("utf-8")
 
-            pdf_doc.close()
-
-            full_text = "\n".join(text_parts)
-            logger.info(f"Извлечён текст из PDF: {len(full_text)} символов")
-            return full_text
-
-        except Exception as e:
-            logger.error(f"Ошибка извлечения текста из PDF: {e}")
-            raise
+        finally:
+            # Удаляем временные файлы
+            try:
+                for filename in os.listdir(temp_dir):
+                    file_path = os.path.join(temp_dir, filename)
+                    os.remove(file_path)
+                os.rmdir(temp_dir)
+                logger.debug("Временные файлы LibreOffice удалены")
+            except Exception as cleanup_error:
+                logger.warning(
+                    f"Не удалось удалить временные файлы: {cleanup_error}"
+                )
+            
+            # Удаляем временный профиль LibreOffice
+            try:
+                shutil.rmtree(lo_profile_dir)
+                logger.debug("Временный профиль LibreOffice удалён")
+            except Exception as cleanup_error:
+                logger.warning(
+                    f"Не удалось удалить временный профиль LibreOffice: {cleanup_error}"
+                )
 
     def convert_pdf_to_images(self, base64_data: str) -> List[str]:
         """
@@ -195,30 +233,39 @@ class DocumentConverter:
             # Очищаем base64 от возможных префиксов
             cleaned_base64 = self._clean_base64(base64_data)
             file_bytes = base64.b64decode(cleaned_base64)
-            
+
             # Логируем размер документа для диагностики
             logger.info(f"Размер PDF документа: {len(file_bytes)} байт")
-            
+
             pdf_doc = fitz.Document(stream=file_bytes, filetype="pdf")
+            logger.debug(
+                f"PDF открыт: страниц={len(pdf_doc)}, "
+                f"размер={len(file_bytes)} байт"
+            )
 
             images_base64 = []
-            for page_num in range(len(pdf_doc)):
-                page = pdf_doc[page_num]
+            try:
+                for page_num in range(len(pdf_doc)):
+                    page = pdf_doc[page_num]
 
-                # Рендерим страницу в изображение с высоким DPI
-                mat = fitz.Matrix(self.PDF_RENDER_DPI, self.PDF_RENDER_DPI)
-                pix = page.get_pixmap(matrix=mat)  # type: ignore[attr-defined]
+                    # Рендерим страницу в изображение с высоким DPI
+                    mat = fitz.Matrix(self.PDF_RENDER_DPI, self.PDF_RENDER_DPI)
+                    pix = page.get_pixmap(matrix=mat)  # type: ignore[attr-defined]
 
-                # Конвертируем в PNG
-                img_bytes = pix.tobytes("png")
-                img_base64 = base64.b64encode(img_bytes).decode("utf-8")
-                images_base64.append(img_base64)
+                    # Конвертируем в PNG
+                    img_bytes = pix.tobytes("png")
+                    img_base64 = base64.b64encode(img_bytes).decode("utf-8")
+                    images_base64.append(img_base64)
 
-                logger.debug(
-                    f"Конвертирована страница {page_num + 1}/{len(pdf_doc)}"
-                )
-
-            pdf_doc.close()
+                    logger.debug(
+                        f"Конвертирована страница {page_num + 1}/{len(pdf_doc)}, "
+                        f"размер PNG={len(img_bytes)} байт"
+                    )
+            finally:
+                # Гарантированно закрываем PDF даже при исключении,
+                # иначе файловый дескриптор и буферы PyMuPDF не освобождаются
+                pdf_doc.close()
+                logger.debug("PDF документ закрыт")
 
             logger.info(
                 f"PDF конвертирован в {len(images_base64)} изображений"

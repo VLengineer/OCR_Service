@@ -37,6 +37,10 @@ class Task(BaseModel):
     )
     call_type: CallType = Field(default=CallType.OCR, description="Тип задачи")
     metadata: Optional[dict] = Field(default=None, description="Дополнительные данные задачи")
+    next_retry_at: Optional[datetime] = Field(
+        default=None,
+        description="Время следующей повторной попытки для задач в error",
+    )
     created_at: datetime = Field(description="Время создания задачи")
     updated_at: datetime = Field(description="Время последнего обновления")
 
@@ -67,7 +71,7 @@ class DocumentRequest(BaseModel):
 class FillRagRequest(BaseModel):
     """Запрос к n8n webhook/fill_rag для заполнения RAG данными."""
 
-    model_config = {"populate_by_name": True}
+    model_config = {"populate_by_name": True, "extra": "allow"}
 
     task_id: UUID | None = Field(default=None, description="ID задачи")
     url: str = Field(description="URL документа")

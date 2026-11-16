@@ -36,6 +36,7 @@ services:
       JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-30}
     # Лимит памяти: защита от OOM Killer (контейнер съедал 20+ ГБ RAM).
+    # memswap_limit = memory → swap запрещён, контейнер не забивает swap хоста.
     # Увеличен до 4G/1G, т.к. 2G не хватает для загрузки/работы OCR-моделей.
     deploy:
       resources:
@@ -43,6 +44,7 @@ services:
           memory: 4G
         reservations:
           memory: 1G
+    memswap_limit: 4G
     networks:
       - app_net_dev
 
@@ -72,6 +74,15 @@ services:
       # ── Воркер ──
       WORKER_POLL_INTERVAL_SEC: ${WORKER_POLL_INTERVAL_SEC:-5}
       WORKER_MAX_RETRIES: ${WORKER_MAX_RETRIES:-3}
+    # Лимит памяти: защита от утечек и заполнения swap хоста.
+    # memswap_limit = memory → swap запрещён, контейнер не использует swap хоста.
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 256M
+    memswap_limit: 1G
     networks:
       - app_net_dev
 

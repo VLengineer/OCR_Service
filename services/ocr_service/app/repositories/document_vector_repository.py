@@ -54,30 +54,43 @@ class DocumentVectorRepository:
         total_inserted = 0
         document_id = rows[0].get("document_id", "N/A")
 
-        for batch_start in range(0, len(rows), batch_size):
-            batch = rows[batch_start : batch_start + batch_size]
-            params_list = [
-                {
-                    "document_id": row["document_id"],
-                    "response_id": row.get("response_id"),
-                    "counterparty_id": row.get("counterparty_id"),
-                    "content": row.get("content"),
-                    "embedding": row["embedding"],
-                    "metadata": json.dumps(row["metadata"]) if row.get("metadata") is not None else None,
-                }
-                for row in batch
-            ]
+        try:
+            for batch_start in range(0, len(rows), batch_size):
+                batch = rows[batch_start : batch_start + batch_size]
+                params_list = [
+                    {
+                        "document_id": row["document_id"],
+                        "response_id": row.get("response_id"),
+                        "counterparty_id": row.get("counterparty_id"),
+                        "content": row.get("content"),
+                        "embedding": row["embedding"],
+                        "metadata": json.dumps(row["metadata"]) if row.get("metadata") is not None else None,
+                    }
+                    for row in batch
+                ]
 
-            await self._session.execute(_INSERT_SQL, params_list)
-            total_inserted += len(params_list)
-            logger.info(
-                "Сохранён пакет векторов: document_id=%s, batch_size=%d, total_inserted=%d",
+                await self._session.execute(_INSERT_SQL, params_list)
+                total_inserted += len(params_list)
+                logger.info(
+                    "Сохранён пакет векторов: document_id=%s, batch_size=%d, total_inserted=%d",
+                    document_id,
+                    len(params_list),
+                    total_inserted,
+                )
+
+            await self._session.flush()
+        except Exception as exc:
+            # Откатываем транзакцию, чтобы соединение не осталось
+            # в «грязном» состоянии и не удерживало ресурсы пула
+            await self._session.rollback()
+            logger.error(
+                "Ошибка БД при сохранении векторов: document_id=%s, inserted=%d, error=%s",
                 document_id,
-                len(params_list),
                 total_inserted,
+                type(exc).__name__,
             )
+            raise
 
-        await self._session.flush()
         self._session.expire_all()
         logger.info(
             "Сохранено %d векторов для document_id=%s",

@@ -5,7 +5,7 @@
 import asyncio
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from uuid import uuid4
 
 from app.services.worker_service import Worker
@@ -18,13 +18,30 @@ from app.schemas.schemas import Task, State, CallType
 # Helpers
 # ──────────────────────────────────────────────
 
+class _MockSessionContextManager:
+    """Асинхронный контекстный менеджер, возвращающий заданную сессию."""
+
+    def __init__(self, session):
+        self._session = session
+
+    @property
+    def session(self):
+        """Внутренняя замоканная сессия (для проверок rollback/close)."""
+        return self._session
+
+    async def __aenter__(self):
+        return self._session
+
+    async def __aexit__(self, exc_type, exc, tb):
+        await self._session.close()
+        return False
+
+
 def _make_mock_session():
     """Создаёт мок async_session, поддерживающий async with.
     """
     mock_session = AsyncMock()
-    mock_session.__aenter__ = AsyncMock(return_value=mock_session)
-    mock_session.__aexit__ = AsyncMock(return_value=False)
-    return mock_session
+    return _MockSessionContextManager(mock_session)
 
 
 def _make_mock_repository(**overrides):
@@ -34,10 +51,6 @@ def _make_mock_repository(**overrides):
     repo.count_tasks_by_state = AsyncMock(
         return_value=overrides.get("processing_count", 0)
     )
-    # get_stuck_processing_tasks — по умолчанию возвращает пустой список
-    repo.get_stuck_processing_tasks = AsyncMock(
-        return_value=overrides.get("stuck_tasks", [])
-    )
     # next_task возвращается один раз, затем None (чтобы worker не зацикливался)
     next_task = overrides.get("next_task", None)
     if next_task is not None:
@@ -46,6 +59,26 @@ def _make_mock_repository(**overrides):
         repo.get_next_waiting_task = AsyncMock(return_value=None)
     repo.update_task_state = AsyncMock()
     repo.increment_retry_and_reset_state = AsyncMock()
+    # has_active_tasks — по умолчанию False (нет активных задач, очередь открыта)
+    repo.has_active_tasks = AsyncMock(
+        return_value=overrides.get("has_active_tasks", False)
+    )
+    # get_active_task_counts — возвращает counts для логирования
+    repo.get_active_task_counts = AsyncMock(
+        return_value=overrides.get("active_task_counts", {"processing": 0, "error": 0})
+    )
+    # get_next_retryable_error_task — по умолчанию None (нет retryable error задач)
+    repo.get_next_retryable_error_task = AsyncMock(
+        return_value=overrides.get("next_retryable_error_task", None)
+    )
+    # move_error_to_waiting — по умолчанию успешный
+    repo.move_error_to_waiting = AsyncMock(
+        return_value=overrides.get("move_error_to_waiting_result", True)
+    )
+    # schedule_secondary_retry — по умолчанию успешный
+    repo.schedule_secondary_retry = AsyncMock()
+    # mark_task_permanently_failed — по умолчанию успешный
+    repo.mark_task_permanently_failed = AsyncMock()
     return repo
 
 
@@ -80,8 +113,9 @@ class TestWorker:
         """
         # Arrange
         mock_settings.worker_max_retries = 3
+        mock_settings.worker_max_secondary_retries = 3
+        mock_settings.worker_secondary_retry_interval_sec = 300
         mock_settings.worker_poll_interval_sec = 5
-        mock_settings.worker_processing_timeout_sec = 300
         mock_session = _make_mock_session()
         mock_async_session.return_value = mock_session
 
@@ -117,8 +151,9 @@ class TestWorker:
         """
         # Arrange
         mock_settings.worker_max_retries = 3
+        mock_settings.worker_max_secondary_retries = 3
+        mock_settings.worker_secondary_retry_interval_sec = 300
         mock_settings.worker_poll_interval_sec = 5
-        mock_settings.worker_processing_timeout_sec = 300
         mock_session = _make_mock_session()
         mock_async_session.return_value = mock_session
 
@@ -153,17 +188,19 @@ class TestWorker:
         mock_request_service,
         sample_task,
     ):
-        """retry_count >= max_retries → окончательный error.
+        """retry_count >= max_total_retries → окончательный провал (mark_task_permanently_failed).
+        max_total_retries = worker_max_retries * (1 + worker_max_secondary_retries) = 3 * 4 = 12.
         """
         # Arrange
         mock_settings.worker_max_retries = 3
+        mock_settings.worker_max_secondary_retries = 3
+        mock_settings.worker_secondary_retry_interval_sec = 300
         mock_settings.worker_poll_interval_sec = 5
-        mock_settings.worker_processing_timeout_sec = 300
         mock_session = _make_mock_session()
         mock_async_session.return_value = mock_session
 
-        # retry_count=3, значит 3 >= 3 → error
-        sample_task.retry_count = 3
+        # retry_count=12, значит 12 >= max_total_retries(12) → permanent failure
+        sample_task.retry_count = 12
         repo = _make_mock_repository(next_task=sample_task)
         mock_task_repo_cls.return_value = repo
 
@@ -176,8 +213,9 @@ class TestWorker:
 
         # Assert
         repo.update_task_state.assert_any_call(sample_task.id, State.PROCESSING)
-        repo.update_task_state.assert_any_call(sample_task.id, State.ERROR)
+        repo.mark_task_permanently_failed.assert_awaited_once_with(sample_task.id)
         repo.increment_retry_and_reset_state.assert_not_awaited()
+        repo.schedule_secondary_retry.assert_not_awaited()
 
     @patch("app.services.worker_service.settings")
     @patch("app.services.worker_service.TaskRepository")
@@ -195,8 +233,9 @@ class TestWorker:
         """
         # Arrange
         mock_settings.worker_max_retries = 3
+        mock_settings.worker_max_secondary_retries = 3
+        mock_settings.worker_secondary_retry_interval_sec = 300
         mock_settings.worker_poll_interval_sec = 5
-        mock_settings.worker_processing_timeout_sec = 300
         mock_session = _make_mock_session()
         mock_async_session.return_value = mock_session
 
@@ -232,8 +271,9 @@ class TestWorker:
         """
         # Arrange
         mock_settings.worker_max_retries = 3
+        mock_settings.worker_max_secondary_retries = 3
+        mock_settings.worker_secondary_retry_interval_sec = 300
         mock_settings.worker_poll_interval_sec = 5
-        mock_settings.worker_processing_timeout_sec = 300
         mock_session = _make_mock_session()
         mock_async_session.return_value = mock_session
 
@@ -267,8 +307,9 @@ class TestWorker:
         """
         # Arrange
         mock_settings.worker_max_retries = 3
+        mock_settings.worker_max_secondary_retries = 3
+        mock_settings.worker_secondary_retry_interval_sec = 300
         mock_settings.worker_poll_interval_sec = 5
-        mock_settings.worker_processing_timeout_sec = 300
         mock_session = _make_mock_session()
         mock_async_session.return_value = mock_session
 
@@ -280,8 +321,7 @@ class TestWorker:
         # Act
         await _run_worker_one_iteration(worker)
 
-        # Assert — reaper вызывается, но задач нет
-        repo.get_stuck_processing_tasks.assert_awaited()
+        # Assert
         repo.get_next_waiting_task.assert_awaited()
         mock_request_service.ocr_request.assert_not_awaited()
         repo.update_task_state.assert_not_awaited()
@@ -307,8 +347,9 @@ class TestWorker:
         """
         # Arrange
         mock_settings.worker_max_retries = 3
+        mock_settings.worker_max_secondary_retries = 3
+        mock_settings.worker_secondary_retry_interval_sec = 300
         mock_settings.worker_poll_interval_sec = 5
-        mock_settings.worker_processing_timeout_sec = 300
         mock_session = _make_mock_session()
         mock_async_session.return_value = mock_session
 
@@ -346,8 +387,9 @@ class TestWorker:
         """
         # Arrange
         mock_settings.worker_max_retries = 3
+        mock_settings.worker_max_secondary_retries = 3
+        mock_settings.worker_secondary_retry_interval_sec = 300
         mock_settings.worker_poll_interval_sec = 5
-        mock_settings.worker_processing_timeout_sec = 300
         mock_session = _make_mock_session()
         mock_async_session.return_value = mock_session
 
@@ -385,16 +427,19 @@ class TestWorker:
         mock_request_service,
         sample_fill_rag_task,
     ):
-        """fill_rag retry_count >= max_retries → окончательный error.
+        """fill_rag retry_count >= max_total_retries → окончательный провал.
+        max_total_retries = worker_max_retries * (1 + worker_max_secondary_retries) = 3 * 4 = 12.
         """
         # Arrange
         mock_settings.worker_max_retries = 3
+        mock_settings.worker_max_secondary_retries = 3
+        mock_settings.worker_secondary_retry_interval_sec = 300
         mock_settings.worker_poll_interval_sec = 5
-        mock_settings.worker_processing_timeout_sec = 300
         mock_session = _make_mock_session()
         mock_async_session.return_value = mock_session
 
-        sample_fill_rag_task.retry_count = 3
+        # retry_count=12, значит 12 >= max_total_retries(12) → permanent failure
+        sample_fill_rag_task.retry_count = 12
         repo = _make_mock_repository(next_task=sample_fill_rag_task)
         mock_task_repo_cls.return_value = repo
 
@@ -411,8 +456,9 @@ class TestWorker:
         repo.update_task_state.assert_any_call(
             sample_fill_rag_task.id, State.PROCESSING
         )
-        repo.update_task_state.assert_any_call(sample_fill_rag_task.id, State.ERROR)
+        repo.mark_task_permanently_failed.assert_awaited_once_with(sample_fill_rag_task.id)
         repo.increment_retry_and_reset_state.assert_not_awaited()
+        repo.schedule_secondary_retry.assert_not_awaited()
 
     @patch("app.services.worker_service.settings")
     @patch("app.services.worker_service.TaskRepository")
@@ -429,8 +475,9 @@ class TestWorker:
         """
         # Arrange
         mock_settings.worker_max_retries = 3
+        mock_settings.worker_max_secondary_retries = 3
+        mock_settings.worker_secondary_retry_interval_sec = 300
         mock_settings.worker_poll_interval_sec = 5
-        mock_settings.worker_processing_timeout_sec = 300
         mock_session = _make_mock_session()
         mock_async_session.return_value = mock_session
 
@@ -464,8 +511,9 @@ class TestWorker:
         """
         # Arrange
         mock_settings.worker_max_retries = 3
+        mock_settings.worker_max_secondary_retries = 3
+        mock_settings.worker_secondary_retry_interval_sec = 300
         mock_settings.worker_poll_interval_sec = 5
-        mock_settings.worker_processing_timeout_sec = 300
         mock_session = _make_mock_session()
         mock_async_session.return_value = mock_session
 
@@ -484,194 +532,41 @@ class TestWorker:
         mock_request_service.fill_rag_request.assert_awaited_once()
         mock_request_service.ocr_request.assert_not_awaited()
 
-    # ──────────────────────────────────────────────
-    # Reaper Tests (зависшие PROCESSING задачи)
-    # ──────────────────────────────────────────────
-
     @patch("app.services.worker_service.settings")
     @patch("app.services.worker_service.TaskRepository")
     @patch("app.services.worker_service.async_session")
-    async def test_worker_reaper_resets_stuck_processing(
+    async def test_worker_rolls_back_polling_session_on_update_task_state_error(
         self,
         mock_async_session,
         mock_task_repo_cls,
         mock_settings,
         mock_request_service,
+        sample_task,
     ):
-        """Reaper возвращает зависшие PROCESSING задачи в waiting.
-        """
+        """Ошибка update_task_state в цикле → rollback polling_session, worker продолжает работу."""
         # Arrange
         mock_settings.worker_max_retries = 3
+        mock_settings.worker_max_secondary_retries = 3
+        mock_settings.worker_secondary_retry_interval_sec = 300
         mock_settings.worker_poll_interval_sec = 5
-        mock_settings.worker_processing_timeout_sec = 300
-        mock_session = _make_mock_session()
-        mock_async_session.return_value = mock_session
 
-        # Создаём зависшую задачу
-        stuck_task = Task(
-            id=uuid4(),
-            document_id="doc-stuck-1",
-            state=State.PROCESSING,
-            retry_count=0,
-            base64_document=["base64-page-1"],
-            call_type=CallType.OCR,
-            metadata={},
-            created_at=datetime.now(timezone.utc) - timedelta(hours=1),
-            updated_at=datetime.now(timezone.utc) - timedelta(minutes=10),
-        )
+        polling_session_cm = _make_mock_session()
+        polling_session = polling_session_cm.session
+        mock_async_session.return_value = polling_session_cm
 
-        repo = _make_mock_repository(
-            stuck_tasks=[stuck_task],
-            next_task=None,  # нет waiting задач
-        )
+        repo = _make_mock_repository(next_task=sample_task)
+        repo.update_task_state = AsyncMock(side_effect=Exception("DB error"))
         mock_task_repo_cls.return_value = repo
 
         worker = Worker(mock_request_service, poll_interval=0.05)
 
         # Act
-        await _run_worker_one_iteration(worker)
-
-        # Assert — reaper вызван с правильным timeout (хотя бы раз)
-        repo.get_stuck_processing_tasks.assert_awaited()
-        # Проверяем что хотя бы один вызов был с правильным параметром
-        reaper_calls = repo.get_stuck_processing_tasks.call_args_list
-        assert any(call.kwargs.get("timeout_sec") == 300 for call in reaper_calls)
-        # Зависшая задача возвращена в waiting (хотя бы раз)
-        repo.increment_retry_and_reset_state.assert_awaited()
-        assert any(call.args[0] == stuck_task.id for call in repo.increment_retry_and_reset_state.call_args_list)
-        # Не должна быть переведена в ERROR (retry_count < max_retries)
-        calls = repo.update_task_state.call_args_list
-        error_calls = [c for c in calls if c.args[1] == State.ERROR]
-        assert len(error_calls) == 0
-
-    @patch("app.services.worker_service.settings")
-    @patch("app.services.worker_service.TaskRepository")
-    @patch("app.services.worker_service.async_session")
-    async def test_worker_reaper_sets_error_on_max_retries(
-        self,
-        mock_async_session,
-        mock_task_repo_cls,
-        mock_settings,
-        mock_request_service,
-    ):
-        """Reaper переводит в ERROR зависшие задачи с исчерпанными retry.
-        """
-        # Arrange
-        mock_settings.worker_max_retries = 3
-        mock_settings.worker_poll_interval_sec = 5
-        mock_settings.worker_processing_timeout_sec = 300
-        mock_session = _make_mock_session()
-        mock_async_session.return_value = mock_session
-
-        # Зависшая задача с retry_count >= max_retries
-        stuck_task = Task(
-            id=uuid4(),
-            document_id="doc-stuck-2",
-            state=State.PROCESSING,
-            retry_count=3,
-            base64_document=["base64-page-1"],
-            call_type=CallType.OCR,
-            metadata={},
-            created_at=datetime.now(timezone.utc) - timedelta(hours=1),
-            updated_at=datetime.now(timezone.utc) - timedelta(minutes=10),
-        )
-
-        repo = _make_mock_repository(
-            stuck_tasks=[stuck_task],
-            next_task=None,
-        )
-        mock_task_repo_cls.return_value = repo
-
-        worker = Worker(mock_request_service, poll_interval=0.05)
-
-        # Act
-        await _run_worker_one_iteration(worker)
-
-        # Assert — reaper вызван (хотя бы раз)
-        repo.get_stuck_processing_tasks.assert_awaited()
-        # Проверяем что хотя бы один вызов был с правильным параметром
-        reaper_calls = repo.get_stuck_processing_tasks.call_args_list
-        assert any(call.kwargs.get("timeout_sec") == 300 for call in reaper_calls)
-        # Зависшая задача переведена в ERROR (хотя бы раз)
-        repo.update_task_state.assert_awaited()
-        assert any(call.args[0] == stuck_task.id and call.args[1] == State.ERROR
-                   for call in repo.update_task_state.call_args_list)
-        # increment_retry_and_reset_state не должен вызываться для этой задачи
-        retry_calls_for_task = [c for c in repo.increment_retry_and_reset_state.call_args_list
-                                if c.args[0] == stuck_task.id]
-        assert len(retry_calls_for_task) == 0
-
-    @patch("app.services.worker_service.settings")
-    @patch("app.services.worker_service.TaskRepository")
-    @patch("app.services.worker_service.async_session")
-    async def test_worker_reaper_no_stuck_tasks(
-        self,
-        mock_async_session,
-        mock_task_repo_cls,
-        mock_settings,
-        mock_request_service,
-    ):
-        """При отсутствии зависших задач reaper не делает лишних вызовов.
-        """
-        # Arrange
-        mock_settings.worker_max_retries = 3
-        mock_settings.worker_poll_interval_sec = 5
-        mock_settings.worker_processing_timeout_sec = 300
-        mock_session = _make_mock_session()
-        mock_async_session.return_value = mock_session
-
-        repo = _make_mock_repository(
-            stuck_tasks=[],
-            next_task=None,
-        )
-        mock_task_repo_cls.return_value = repo
-
-        worker = Worker(mock_request_service, poll_interval=0.05)
-
-        # Act
-        await _run_worker_one_iteration(worker)
-
-        # Assert — reaper вызван (хотя бы раз)
-        repo.get_stuck_processing_tasks.assert_awaited()
-        # Проверяем что хотя бы один вызов был с правильным параметром
-        reaper_calls = repo.get_stuck_processing_tasks.call_args_list
-        assert any(call.kwargs.get("timeout_sec") == 300 for call in reaper_calls)
-        # Но так как stuck_tasks=[], то никаких действий не сделано
-        repo.increment_retry_and_reset_state.assert_not_awaited()
-        repo.update_task_state.assert_not_awaited()
-
-    @patch("app.services.worker_service.settings")
-    @patch("app.services.worker_service.TaskRepository")
-    @patch("app.services.worker_service.async_session")
-    async def test_worker_reaper_error_does_not_crash_worker(
-        self,
-        mock_async_session,
-        mock_task_repo_cls,
-        mock_settings,
-        mock_request_service,
-    ):
-        """Ошибка в reaper не останавливает воркер.
-        """
-        # Arrange
-        mock_settings.worker_max_retries = 3
-        mock_settings.worker_poll_interval_sec = 5
-        mock_settings.worker_processing_timeout_sec = 300
-        mock_session = _make_mock_session()
-        mock_async_session.return_value = mock_session
-
-        repo = _make_mock_repository(next_task=None)
-        repo.get_stuck_processing_tasks = AsyncMock(
-            side_effect=Exception("DB connection lost")
-        )
-        mock_task_repo_cls.return_value = repo
-
-        worker = Worker(mock_request_service, poll_interval=0.05)
-
-        # Act — worker не должен упасть
         task = asyncio.create_task(worker.start())
         await asyncio.sleep(0.2)
         await worker.stop()
         await asyncio.wait_for(task, timeout=2.0)
 
-        # Assert — worker корректно остановился
+        # Assert
+        polling_session.rollback.assert_awaited_once()
+        assert polling_session.close.await_count >= 1
         assert worker._is_running is False

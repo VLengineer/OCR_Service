@@ -22,6 +22,33 @@ services:
         aliases:
           - postgres_dev
 
+  restic_backup:
+    build:
+      context: ./backup
+      dockerfile: Dockerfile
+    container_name: restic_backup_dev
+    restart: unless-stopped
+    environment:
+      RESTIC_REPOSITORY: ${RESTIC_REPOSITORY}
+      RESTIC_PASSWORD: ${RESTIC_PASSWORD}
+      BACKUP_CRON_SCHEDULE: ${BACKUP_CRON_SCHEDULE:-0 2 * * *}
+      RESTIC_FORGET_PRUNE_ARGS: ${RESTIC_FORGET_PRUNE_ARGS:---keep-daily 7 --keep-weekly 4 --keep-monthly 3}
+      POSTGRES_HOST: ${POSTGRES_HOST:-postgres_dev}
+      POSTGRES_PORT: ${POSTGRES_PORT:-9001}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - postgres_data_dev:/var/lib/postgresql/data:ro
+      - ollama_data_dev:/root/.ollama:ro
+      - n8n_data_dev:/home/node/.n8n:ro
+      - restic_backup_cache_dev:/root/.cache/restic
+    depends_on:
+      postgres_dev:
+        condition: service_healthy
+    networks:
+      - app_net_dev
+
   ollama_dev:
     image: ollama/ollama:0.40.4
     container_name: ollama_dev
@@ -79,6 +106,7 @@ volumes:
   postgres_data_dev:
   ollama_data_dev:
   n8n_data_dev:
+  restic_backup_cache_dev:
 
 networks:
   app_net_dev:

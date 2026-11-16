@@ -194,6 +194,39 @@ class TestTaskRepository:
         mock_session.commit.assert_awaited_once()
 
 
+class TestTaskRepositoryRollback:
+    """Тесты rollback'а при ошибке commit() в методах TaskRepository."""
+
+    @pytest.mark.parametrize(
+        "method_name,method_args",
+        [
+            ("update_task_state", (uuid4(), State.COMPLETED)),
+            ("increment_retry_and_reset_state", (uuid4(),)),
+            ("schedule_secondary_retry", (uuid4(), 300)),
+            ("mark_task_permanently_failed", (uuid4(),)),
+            ("move_error_to_waiting", (uuid4(),)),
+        ],
+    )
+    async def test_rollback_called_on_commit_error(
+        self, mock_session, method_name, method_args
+    ):
+        """При ошибке commit() вызывается rollback(), исключение пробрасывается."""
+        # Arrange
+        mock_session.commit = AsyncMock(side_effect=Exception("DB commit error"))
+        mock_session.rollback = AsyncMock()
+        mock_session.execute = AsyncMock()
+
+        repo = TaskRepository(mock_session)
+        method = getattr(repo, method_name)
+
+        # Act & Assert
+        with pytest.raises(Exception, match="DB commit error"):
+            await method(*method_args)
+
+        mock_session.commit.assert_awaited_once()
+        mock_session.rollback.assert_awaited_once()
+
+
 class TestTaskRepositoryHelpers:
     """Тесты вспомогательных методов TaskRepository."""
 

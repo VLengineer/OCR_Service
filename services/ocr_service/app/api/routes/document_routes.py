@@ -47,8 +47,20 @@ async def process_document(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Invalid document_type: {document.document_type}",
         )
+    # Диагностическое логирование размера входного пейлоада.
+    # Логируем только длину base64-строки, без содержимого и PII.
+    logger.info(
+        "Документ принят на асинхронную обработку: "
+        "document_id=%s, base64_size=%d B",
+        document.document_id,
+        len(document.document_base64),
+    )
     try:
         await document_service.processing(document)
+        logger.info(
+            "Документ поставлен в очередь на обработку: document_id=%s",
+            document.document_id,
+        )
         return DocumentAcceptedResponse(
             status="accepted",
             document_id=document.document_id,

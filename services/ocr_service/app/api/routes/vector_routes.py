@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.api.deps import get_current_user, get_document_vector_service
 from app.schemas.schemas import DocumentVectorizeRequest, DocumentVectorizeResponse
-from app.services.document_vector_service import DocumentVectorService
+from app.services.document_vector_service import DocumentVectorService, _semaphore
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +31,8 @@ async def vectorize_document(
     _current_user: dict = Depends(get_current_user),
 ) -> DocumentVectorizeResponse:
     try:
-        result = await service.vectorize(request)
+        async with _semaphore:
+            result = await service.vectorize(request)
         return result
     except Exception as e:
         logger.error("Ошибка векторизации документа %s: %s", request.document_id, e)
